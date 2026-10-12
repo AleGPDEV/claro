@@ -10,12 +10,19 @@ import { hourlyRate } from '../lib/stats'
 import { actions, CURRENCIES, getState, importState, isPersisted, useLedger, useMoney } from '../lib/store'
 import type { Settings } from '../lib/types'
 
-function NumberField({ label, value, onCommit }: { label: string; value: number; onCommit: (n: number) => void }) {
-  const [text, setText] = useState(value ? String(value).replace('.', ',') : '')
+/** Con `required`, un campo vaciado vuelve a su valor guardado en vez de guardar un 0. */
+function NumberField({ label, value, onCommit, required = false }: { label: string; value: number; onCommit: (n: number) => void; required?: boolean }) {
+  const saved = value ? String(value).replace('.', ',') : ''
+  const [text, setText] = useState(saved)
+  const commit = () => {
+    const n = parseAmount(text)
+    if (n === null && required) setText(saved)
+    else onCommit(n ?? 0)
+  }
   return (
     <label className="field">
       <span>{label}</span>
-      <input inputMode="decimal" value={text} placeholder="—" onChange={(e) => setText(e.target.value)} onBlur={() => onCommit(parseAmount(text) ?? 0)} />
+      <input inputMode="decimal" value={text} placeholder="—" onChange={(e) => setText(e.target.value)} onBlur={commit} />
     </label>
   )
 }
@@ -31,6 +38,15 @@ export default function SettingsView() {
     // Sin segunda moneda, cambiar la principal solo puede ser corregir un error: los números no cambian.
     if (code !== second && mine > 0 && !confirm(`Tus ${mine} movimientos en ${main} van a pasar a figurar en ${code}, con los mismos números. Hacelo solo si te habías equivocado de moneda. ¿Continuar?`)) return
     actions.setMainCurrency(code)
+  }
+
+  const changeSecond = (code: string) => {
+    const fixed = actions.fixedInSecond()
+    if (fixed > 0) {
+      alert(`Tenés ${fixed} ${fixed === 1 ? 'fijo' : 'fijos'} en ${second}. Antes de quitar o cambiar la segunda moneda, pasalos a ${main} o eliminalos desde la pestaña Fijos.`)
+      return
+    }
+    actions.setSecondCurrency(code)
   }
   const file = useRef<HTMLInputElement>(null)
   const [persisted, setPersisted] = useState<boolean | null>(null)
@@ -71,7 +87,7 @@ export default function SettingsView() {
           </label>
           <label className="field">
             <span>Segunda moneda</span>
-            <select value={second} onChange={(e) => actions.setSecondCurrency(e.target.value)}>
+            <select value={second} onChange={(e) => changeSecond(e.target.value)}>
               <option value="">Ninguna</option>
               {CURRENCIES.filter((c) => c !== main).map((c) => (
                 <option key={c}>{c}</option>
@@ -85,13 +101,14 @@ export default function SettingsView() {
               key={`r${main}${second}${settings.rate}`}
               label={`Tipo de cambio: 1 ${q.base} = ¿cuántos ${q.counter}?`}
               value={quoted(settings.rate, q.inverted)}
-              onCommit={(x) => actions.setSettings({ rate: quoted(x, q.inverted) })}
+              onCommit={(x) => actions.setRate(quoted(x, q.inverted))}
+              required={settings.rate > 0}
             />
             {isBimonetary(settings) ? (
               <>
                 <p className="muted small">
-                  Los totales se muestran en {main}. Cada movimiento en {second} guarda el cambio del día en que lo anotás,
-                  así que actualizar este valor no altera lo ya registrado.
+                  Los totales se muestran en {main}. Cada movimiento en {second} guarda el cambio con el que lo anotás,
+                  así que actualizar este valor no altera lo ya registrado. Los fijos en {second} sí usan el cambio actual.
                 </p>
                 <button onClick={() => actions.swapCurrencies()}>Usar {second} como principal</button>
               </>

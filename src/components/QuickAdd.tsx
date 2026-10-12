@@ -23,7 +23,7 @@ export default function QuickAdd() {
   // La moneda escrita manda ("150 pesos"); si no, la última que se eligió en el selector.
   const currency = parsed.currency ?? (two && settings.entryCurrency === second ? second : main)
   const entry = { ...parsed, category, currency, date: date ?? parsed.date }
-  const value = entry.amount === null ? 0 : toMain(entry.amount, currency, undefined, settings)
+  const value = entry.amount === null ? 0 : (toMain(entry.amount, currency, undefined, settings) ?? 0)
   const rate = hourlyRate(settings)
 
   // "/" enfoca la entrada rápida desde cualquier punto de la pantalla.
@@ -62,7 +62,7 @@ export default function QuickAdd() {
           ref={input}
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder={two ? `café 3,50 · café 150 ${second.toLowerCase()}` : 'café 3,50'}
+          placeholder={two ? `café 3,50 · café 3,50 ${(currency === main ? second : main).toLowerCase()}` : 'café 3,50'}
           aria-label="Agregar movimiento"
           autoComplete="off"
           enterKeyHint="done"

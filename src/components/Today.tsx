@@ -2,7 +2,7 @@ import { cat } from '../lib/categories'
 import { downloadBackup } from '../lib/backup'
 import { addDays, dayLabel, daysInMonth, parseDate, today } from '../lib/dates'
 import { demoData } from '../lib/demo'
-import { monthlyValue } from '../lib/fx'
+import { convertible, monthlyValue } from '../lib/fx'
 import { byCategory, compare, dailyTotals, hourlyRate, sum, workTime, type PeriodKind } from '../lib/stats'
 import { actions, getState, useLedger, useMoney, type Money } from '../lib/store'
 import type { Entry, State, Tx } from '../lib/types'
@@ -115,6 +115,8 @@ export default function Today({ openPeriod, onEdit }: { openPeriod: (k: PeriodKi
 
   const todays = txs.filter((x) => x.date === t)
   const tips = insights(state, money)
+  // Lo que no se puede convertir no se suma; se avisa en vez de contarlo 1 a 1.
+  const unconverted = txs.filter((x) => x.unconverted).length + recurring.filter((r) => !convertible(r.currency, settings)).length
   const backupDue = txs.length > 0 && (settings.backupReminder === '' || t >= settings.backupReminder)
 
   return (
@@ -171,6 +173,15 @@ export default function Today({ openPeriod, onEdit }: { openPeriod: (k: PeriodKi
           <small><Delta value={year.delta} /></small>
         </button>
       </section>
+
+      {unconverted > 0 && (
+        <section className="card notice">
+          <p className="warn">
+            <b>{unconverted} {unconverted === 1 ? 'anotación no se está sumando' : 'anotaciones no se están sumando'}</b> a los totales porque{' '}
+            {unconverted === 1 ? 'está' : 'están'} en otra moneda y falta su tipo de cambio. Abrí cada una para indicarlo, o cargá el cambio en Ajustes.
+          </p>
+        </section>
+      )}
 
       {backupDue && (
         <section className="card notice">

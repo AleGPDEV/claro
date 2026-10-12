@@ -60,5 +60,8 @@ export interface State {
   settings: Settings
 }
 
-/** Un movimiento con su valor ya convertido a la moneda principal. */
-export type Entry = Tx & { value: number }
+/**
+ * Un movimiento con su valor en la moneda principal. Si no hay tipo de cambio con que
+ * convertirlo, `unconverted` es true y `value` es 0: no se suma a ningún total.
+ */
+export type Entry = Tx & { value: number; unconverted: boolean }

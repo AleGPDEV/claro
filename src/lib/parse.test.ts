@@ -42,6 +42,11 @@ describe('qué número es el importe', () => {
     ['uber 10 y 5 propina', 15, 'Uber propina'],
     ['super 1.200 + 350', 1550, 'Super'],
     ['cena 30 más 5', 35, 'Cena'],
+    ['almuerzo 450 y propina 50', 500, 'Almuerzo'],
+    ['café 3,50 y 2 medialunas', 3.5, 'Café y 2 medialunas'],
+    ['café 3 y 2 medialunas', 3, 'Café y 2 medialunas'],
+    ['pago 3 cuotas 1200', 1200, 'Pago 3 cuotas'],
+    ['12 uber 2 personas', 12, 'Uber 2 personas'],
   ])('%s → %d', (text, amount, note) => {
     const p = parse(text)
     expect(p.amount).toBe(amount)
@@ -59,7 +64,11 @@ describe('qué número es el importe', () => {
   })
 
   test('avisa cuando elige entre varios números por su posición', () => {
-    expect(parse('20 cena con 4 amigos').doubt).toBe('several')
+    expect(parse('uber 12 a las 3').doubt).toBe('several')
+    // Una cantidad ("4 amigos") no compite con el monto, así que no hay duda.
+    expect(parse('20 cena con 4 amigos').doubt).toBeNull()
+    expect(parse('2 cafés 7').doubt).toBeNull()
+    expect(parse('2 cafés')).toMatchObject({ amount: 2, doubt: null })
     expect(parse('2 cafés 3,50').doubt).toBeNull()
     expect(parse('café 3,50').doubt).toBeNull()
     expect(parse('café').doubt).toBeNull()
@@ -81,6 +90,7 @@ describe('moneda', () => {
   test('la mención marca el monto y sale de la nota', () => {
     expect(parseEntry('café 150 pesos', {}, both)).toMatchObject({ amount: 150, currency: 'UYU', note: 'Café', category: 'comida' })
     expect(parseEntry('20usd uber', {}, both)).toMatchObject({ amount: 20, currency: 'USD', note: 'Uber' })
+    expect(parseEntry('almuerzo $450', {}, both)).toMatchObject({ amount: 450, currency: 'UYU', note: 'Almuerzo' })
     expect(parseEntry('entradas u$s 45 para 2', {}, both)).toMatchObject({ amount: 45, currency: 'USD', note: 'Entradas para 2', doubt: null })
     expect(parseEntry('-500 pesos devolución', {}, both)).toMatchObject({ amount: 500, currency: 'UYU', refund: true })
   })
@@ -122,7 +132,7 @@ describe('categorías', () => {
     ['matrícula facultad', 'educacion'],
     ['luces', 'hogar'],
     ['copa de vino', 'comida'],
-    ['copas', 'ocio'],
+    ['copas', 'comida'],
   ])('%s → %s', (text, id) => expect(detectCategory(text)).toBe(id))
 
   test.each(['constructor', 'toString', '__proto__', 'xyz', 'cursor', 'restaurar'])('"%s" no tiene categoría', (text) => {

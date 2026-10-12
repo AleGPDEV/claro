@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { quote, quoted } from '../lib/fx'
 import { parseAmount } from '../lib/parse'
-import { actions, CURRENCIES, useStore } from '../lib/store'
+import { actions, CURRENCIES, everydayCurrency, useStore } from '../lib/store'
 
 export default function Onboarding() {
   const { settings } = useStore()
@@ -12,17 +12,21 @@ export default function Onboarding() {
   const [income, setIncome] = useState('')
   const other = second !== currency ? second : ''
   const q = quote(currency, other)
+  const parsedRate = parseAmount(rate)
+  // Con segunda moneda el cambio es obligatorio: sin él no se podría anotar nada en ella.
+  const ready = !other || parsedRate !== null
 
   return (
     <form
       className="onboarding"
       onSubmit={(e) => {
         e.preventDefault()
+        if (!ready) return
         actions.finishOnboarding({
           currency,
           second: other,
-          rate: other ? quoted(parseAmount(rate) ?? 0, q.inverted) : 0,
-          entryCurrency: currency,
+          rate: other ? quoted(parsedRate ?? 0, q.inverted) : 0,
+          entryCurrency: everydayCurrency(currency, other),
           budget: parseAmount(budget) ?? 0,
           income: parseAmount(income) ?? 0,
         })
@@ -56,6 +60,12 @@ export default function Onboarding() {
           <input inputMode="decimal" placeholder="Lo podés cambiar cuando quieras en Ajustes" value={rate} onChange={(e) => setRate(e.target.value)} />
         </label>
       )}
+      {other && (
+        <p className="muted small">
+          Los totales van a estar en {currency}. Al anotar, un monto sin moneda se toma en {everydayCurrency(currency, other)};
+          para la otra escribila («20 usd», «150 pesos») o elegila al cargar.
+        </p>
+      )}
       <label className="field">
         <span>Presupuesto mensual en {currency} <em>opcional</em></span>
         <input inputMode="decimal" placeholder="Para saber cuánto podés gastar cada día" value={budget} onChange={(e) => setBudget(e.target.value)} />
@@ -65,7 +75,7 @@ export default function Onboarding() {
         <input inputMode="decimal" placeholder="Para traducir gastos a horas de trabajo" value={income} onChange={(e) => setIncome(e.target.value)} />
       </label>
 
-      <button className="primary">Empezar</button>
+      <button className="primary" disabled={!ready}>Empezar</button>
       <p className="muted small">Tus datos se guardan solo en este dispositivo. Sin cuentas ni servidores.</p>
     </form>
   )

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { cat, detectCategory } from '../lib/categories'
 import { addMonths, dayLabel, today } from '../lib/dates'
-import { isBimonetary, monthlyValue } from '../lib/fx'
+import { convertible, isBimonetary, monthlyValue } from '../lib/fx'
 import { parseAmount } from '../lib/parse'
 import { actions, dueCount, nextDue, useMoney, useStore } from '../lib/store'
 import type { Every, Recurring } from '../lib/types'
@@ -88,8 +88,14 @@ export default function Fixed() {
                     </small>
                   </span>
                   <span className={r.kind === 'income' ? 'tx-amount stack income' : 'tx-amount stack'}>
-                    {r.kind === 'income' ? '+' : ''}{money(monthlyValue(r, settings) * 12, true)}
-                    <small className="muted">al año</small>
+                    {convertible(r.currency, settings) ? (
+                      <>
+                        {r.kind === 'income' ? '+' : ''}{money(monthlyValue(r, settings) * 12, true)}
+                        <small className="muted">al año</small>
+                      </>
+                    ) : (
+                      <small className="over">falta el tipo de cambio</small>
+                    )}
                   </span>
                 </button>
                 <button

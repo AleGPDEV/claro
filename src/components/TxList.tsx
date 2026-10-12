@@ -35,7 +35,11 @@ export default function TxList({ txs, onEdit, showDays = true }: { txs: Entry[];
                 </span>
                 <span className={`tx-amount stack ${incoming ? 'income' : ''}`}>
                   {incoming ? '+' : ''}{money(Math.abs(t.amount), false, t.currency)}
-                  {t.currency !== main && <small className="muted">≈ {money(Math.abs(t.value))}</small>}
+                  {t.unconverted ? (
+                    <small className="over">falta el tipo de cambio</small>
+                  ) : (
+                    t.currency !== main && <small className="muted">≈ {money(Math.abs(t.value))}</small>
+                  )}
                 </span>
               </button>
             )

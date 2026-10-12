@@ -57,6 +57,18 @@ interface Candidate {
   negative: boolean
   /** Tiene dos decimales, como un precio. */
   cents: boolean
+  /** Cuenta cosas ("2 medialunas", "4 amigos"): no es un monto salvo que sea el único número. */
+  quantity: boolean
+}
+
+// Palabras terminadas en "s" que no son un plural contable.
+const NOT_PLURAL = ['mas', 'más', 'menos', 'lunes', 'martes', 'miercoles', 'miércoles', 'jueves', 'viernes', 'gratis', 'antes', 'despues', 'después']
+
+/** Un entero pequeño seguido de un plural: "2 medialunas", "3 cuotas", "4 amigos". */
+function isQuantity(text: string, c: Pick<Candidate, 'end' | 'raw' | 'marked' | 'negative'>) {
+  if (c.marked || c.negative || !/^\d{1,2}$/.test(c.raw) || Number(c.raw) > 31) return false
+  const word = text.slice(c.end).match(/^\s+(\p{L}{3,}s)(?!\p{L})/iu)?.[1]
+  return word !== undefined && !NOT_PLURAL.includes(word.toLowerCase())
 }
 
 function candidates(text: string): Candidate[] {
@@ -80,7 +92,8 @@ function candidates(text: string): Candidate[] {
       marked = true
       end += after[0].length
     }
-    found.push({ start, end, raw: m[0], value: parseAmount(m[0]), marked, negative, cents: /[.,]\d{2}$/.test(m[0]) })
+    const c = { start, end, raw: m[0], value: parseAmount(m[0]), marked, negative, cents: /[.,]\d{2}$/.test(m[0]) }
+    found.push({ ...c, quantity: isQuantity(text, c) })
   }
 
   // "café 3 50" → 3,50: un entero corto seguido de exactamente dos cifras son los céntimos.
@@ -90,17 +103,18 @@ function candidates(text: string): Candidate[] {
     const b = found[i + 1]
     if (text.slice(a.end, b.start) === ' ' && /^\d{1,3}$/.test(a.raw) && /^\d{2}$/.test(b.raw) && !b.negative) {
       const raw = `${a.raw}.${b.raw}`
-      found.splice(i, 2, { ...a, end: b.end, raw, value: parseAmount(raw), marked: a.marked || b.marked, cents: true })
+      found.splice(i, 2, { ...a, end: b.end, raw, value: parseAmount(raw), marked: a.marked || b.marked, cents: true, quantity: false })
       break
     }
   }
 
-  // "uber 10 y 5 propina" → 15: dos montos unidos por "y", "+" o "más" se suman.
+  // Dos montos unidos por "y", "+" o "más" se suman, con o sin el concepto en medio:
+  // "uber 10 y 5 propina" → 15, "almuerzo 450 y propina 50" → 500. Una cantidad no se suma.
   for (let i = 0; i < found.length - 1; ) {
     const a = found[i]
     const b = found[i + 1]
-    const joined = /^\s*(?:y|\+|mas|más)\s*$/i.test(text.slice(a.end, b.start))
-    if (joined && a.value !== null && b.value !== null && !b.negative) {
+    const joined = /^\s*(?:y|\+|mas|más)(?:\s+\p{L}+)?\s*$/iu.test(text.slice(a.end, b.start))
+    if (joined && a.value !== null && b.value !== null && !b.negative && !a.quantity && !b.quantity) {
       const value = Math.round((a.value + b.value) * 100) / 100
       found.splice(i, 2, { ...a, end: b.end, raw: String(value), value, marked: a.marked || b.marked, cents: a.cents || b.cents })
     } else i++
@@ -109,10 +123,13 @@ function candidates(text: string): Candidate[] {
 }
 
 /**
- * Elige cuál de los números es el monto. Por orden: el que lleva símbolo de moneda,
+ * Elige cuál de los números es el monto, dejando fuera las cantidades si hay algo más.
+ * Por orden: el que lleva símbolo de moneda,
  * el único con céntimos, el del final, el del principio y, si no, el último.
  */
-function pickAmount(text: string, found: Candidate[]): { chosen?: Candidate; doubt: Parsed['doubt'] } {
+function pickAmount(text: string, all: Candidate[]): { chosen?: Candidate; doubt: Parsed['doubt'] } {
+  const amounts = all.filter((c) => !c.quantity)
+  const found = amounts.length ? amounts : all
   const cents = found.filter((c) => c.cents)
   const sure = found.find((c) => c.marked) ?? (cents.length === 1 ? cents[0] : undefined)
   if (sure) return { chosen: sure, doubt: null }

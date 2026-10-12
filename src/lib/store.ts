@@ -1,7 +1,7 @@
 import { useMemo, useSyncExternalStore } from 'react'
 import { normalize } from './categories'
 import { addDays, today } from './dates'
-import { flipRate, snapshotRate, txValue } from './fx'
+import { flipRate, rateOn, txValue } from './fx'
 import { guessCurrency } from './locale'
 import { defaults as modelDefaults, materialize, sanitize } from './model'
 import type { Entry, Recurring, Settings, State, Tx } from './types'
@@ -17,6 +17,15 @@ const DEFAULT_CURRENCY = 'USD'
 function localCurrency() {
   const local = guessCurrency(navigator.languages ?? [navigator.language], Intl.DateTimeFormat().resolvedOptions().timeZone ?? '')
   return local === DEFAULT_CURRENCY ? '' : local
+}
+
+/**
+ * Moneda en la que se anota por defecto: la del país si es una de las dos, porque en ella
+ * están los gastos de todos los días; si no, la principal.
+ */
+export function everydayCurrency(main: string, second: string) {
+  const local = localCurrency()
+  return second && local === second ? second : main
 }
 
 const defaults = () => modelDefaults(DEFAULT_CURRENCY, localCurrency())
@@ -114,11 +123,15 @@ export const getState = () => state
 /** El estado con cada movimiento convertido a la moneda principal; es lo que usan los cálculos. */
 export function useLedger() {
   const s = useStore()
-  const txs = useMemo<Entry[]>(() => s.txs.map((t) => ({ ...t, value: txValue(t, s.settings) })), [s.txs, s.settings])
+  const txs = useMemo(() => ledger(s), [s.txs, s.settings])
   return { ...s, txs }
 }
 
-export const ledger = (s: State): Entry[] => s.txs.map((t) => ({ ...t, value: txValue(t, s.settings) }))
+export const ledger = (s: Pick<State, 'txs' | 'settings'>): Entry[] =>
+  s.txs.map((t) => {
+    const value = txValue(t, s.settings)
+    return { ...t, value: value ?? 0, unconverted: value === null }
+  })
 
 const learn = (tx: Pick<Tx, 'note' | 'kind' | 'category'>) =>
   tx.note && tx.kind === 'expense' ? { ...state.learned, [normalize(tx.note)]: tx.category } : state.learned
@@ -126,9 +139,9 @@ const learn = (tx: Pick<Tx, 'note' | 'kind' | 'category'>) =>
 const round2 = (n: number) => Math.round(n * 100) / 100
 
 export const actions = {
-  /** El tipo de cambio del momento se guarda con el movimiento si no está en la moneda principal. */
+  /** Si el movimiento no está en la moneda principal, se guarda con él el tipo de cambio de su fecha. */
   addTx(tx: Omit<Tx, 'id' | 'rate'>) {
-    const rate = snapshotRate(tx.currency, state.settings)
+    const rate = rateOn(tx.currency, tx.date, today(), state.txs, state.settings)
     const full: Tx = { ...tx, id: crypto.randomUUID(), ...(rate ? { rate } : {}) }
     commit({ ...state, txs: [...state.txs, full], learned: learn(tx) })
     return full.id
@@ -171,17 +184,36 @@ export const actions = {
       settings: { ...s, currency: code, entryCurrency: s.entryCurrency === s.currency ? code : s.entryCurrency },
     })
   },
-  /** La segunda moneda pasa a ser la principal; presupuesto e ingreso se convierten. */
+  /**
+   * La segunda moneda pasa a ser la principal; presupuesto e ingreso se convierten. Lo anotado
+   * en la principal anterior queda con el cambio de hoy, para que su valor no se mueva después.
+   */
   swapCurrencies() {
     const s = state.settings
-    if (!s.second) return
-    const convert = (n: number) => (s.rate > 0 ? round2(n * s.rate) : n)
-    actions.setSettings({ currency: s.second, second: s.currency, rate: flipRate(s.rate), budget: convert(s.budget), income: convert(s.income) })
+    if (!s.second || !(s.rate > 0)) return
+    const rate = flipRate(s.rate)
+    const convert = (n: number) => round2(n * s.rate)
+    commit({
+      ...state,
+      txs: state.txs.map((t) => (t.currency === s.currency && !t.rate ? { ...t, rate } : t)),
+      settings: { ...s, currency: s.second, second: s.currency, rate, budget: convert(s.budget), income: convert(s.income) },
+    })
+  },
+  /** Fijos anotados en la segunda moneda: mientras existan no se puede quitar ni cambiar. */
+  fixedInSecond() {
+    const { second } = state.settings
+    return second ? state.recurring.filter((r) => r.currency === second).length : 0
   },
   setSecondCurrency(code: string) {
     const s = state.settings
-    if (code === s.second) return
+    if (code === s.second || actions.fixedInSecond() > 0) return
     actions.setSettings({ second: code === s.currency ? '' : code, rate: 0, entryCurrency: s.currency })
+  },
+  /** El cambio no se puede dejar vacío: sin él lo anotado en la segunda moneda no tendría valor. */
+  setRate(rate: number) {
+    const s = state.settings
+    if (!s.second || !(rate > 0)) return
+    actions.setSettings({ rate, ...(s.rate > 0 ? {} : { entryCurrency: everydayCurrency(s.currency, s.second) }) })
   },
   finishOnboarding(patch: Partial<Settings>) {
     actions.setSettings({ ...patch, onboarded: true, backupReminder: addDays(today(), 14) })

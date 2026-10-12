@@ -1,12 +1,12 @@
 import { describe, expect, test } from 'vitest'
 import { toCsv } from './csv'
-import { findCurrency, flipRate, monthlyValue, quote, quoted, toMain } from './fx'
+import { convertible, findCurrency, flipRate, monthlyValue, quote, quoted, rateOn, toMain } from './fx'
 import { guessCurrency } from './locale'
 import { dueCount, MAX_CATCH_UP, materialize, sanitize } from './model'
 import type { Entry, Settings, Tx } from './types'
 
 const tx = (over: Partial<Tx> = {}) => ({ id: 'a', kind: 'expense', amount: 10, category: 'comida', note: 'Café', date: '2026-10-12', ...over })
-const entry = (over: Partial<Entry> = {}) => ({ ...tx(), currency: 'USD', value: over.amount ?? 10, ...over }) as Entry
+const entry = (over: Partial<Entry> = {}) => ({ ...tx(), currency: 'USD', value: over.amount ?? 10, unconverted: false, ...over }) as Entry
 const usdUyu = { ...sanitize(null, 'USD', 'UYU').settings, rate: 40 } satisfies Settings
 
 describe('sanitize', () => {
@@ -77,8 +77,26 @@ describe('dos monedas', () => {
     expect(toMain(100, 'USD', undefined, usdUyu)).toBe(100)
     expect(toMain(4000, 'UYU', undefined, usdUyu)).toBe(100)
     expect(toMain(4000, 'UYU', 50, usdUyu)).toBe(80)
-    // Una moneda que ya no se usa y sin cambio guardado: no hay cómo convertirla.
-    expect(toMain(500, 'ARS', undefined, usdUyu)).toBe(500)
+  })
+
+  test('sin tipo de cambio no convierte: nunca 1 a 1', () => {
+    expect(toMain(500, 'ARS', undefined, usdUyu)).toBeNull()
+    const noRate = { ...usdUyu, rate: 0 }
+    expect(toMain(25000, 'UYU', undefined, noRate)).toBeNull()
+    expect(toMain(25000, 'UYU', 40, noRate)).toBe(625)
+    const rent = { id: 'r', kind: 'expense', name: 'Alquiler', amount: 25000, currency: 'UYU', category: 'hogar', every: 'month', start: '2026-10-01', done: 0 } as const
+    expect(convertible('UYU', noRate)).toBe(false)
+    expect(monthlyValue(rent, noRate)).toBe(0)
+    expect(monthlyValue(rent, { ...usdUyu, second: '', rate: 0 })).toBe(0)
+  })
+
+  test('una fecha pasada toma el cambio del movimiento más cercano a ese día', () => {
+    const past = [tx({ currency: 'UYU', rate: 38, date: '2026-07-01' }), tx({ id: 'b', currency: 'UYU', rate: 39, date: '2026-09-01' })] as Tx[]
+    expect(rateOn('UYU', '2026-10-12', '2026-10-12', past, usdUyu)).toBe(40)
+    expect(rateOn('UYU', '2026-10-11', '2026-10-12', past, usdUyu)).toBe(40)
+    expect(rateOn('UYU', '2026-08-28', '2026-10-12', past, usdUyu)).toBe(39)
+    expect(rateOn('UYU', '2026-07-03', '2026-10-12', past, usdUyu)).toBe(38)
+    expect(rateOn('USD', '2026-07-03', '2026-10-12', past, usdUyu)).toBeUndefined()
   })
 
   test('el cambio se muestra con la moneda fuerte a la izquierda', () => {
@@ -97,9 +115,18 @@ describe('dos monedas', () => {
     expect(findCurrency('20usd uber', ['USD', 'UYU'])?.code).toBe('USD')
     expect(findCurrency('u$s 20 taxi', ['USD', 'UYU'])).toEqual({ code: 'USD', text: '$ 20 taxi' })
     expect(findCurrency('cambié dólares', ['USD', 'UYU'])?.code).toBe('USD')
-    expect(findCurrency('taxi $20', ['USD', 'UYU'])).toBeNull()
     expect(findCurrency('café 150 pesos', ['USD'])).toBeNull()
     expect(findCurrency('pesas 20', ['USD', 'UYU'])).toBeNull()
+    expect(findCurrency('balanza peso 800', ['USD', 'UYU'])).toBeNull()
+  })
+
+  test('"$" son pesos cuando una sola de las monedas es un peso', () => {
+    expect(findCurrency('almuerzo $450', ['USD', 'UYU'])?.code).toBe('UYU')
+    expect(findCurrency('almuerzo 450 $', ['UYU', 'USD'])?.code).toBe('UYU')
+    expect(findCurrency('almuerzo u$s 45', ['USD', 'UYU'])?.code).toBe('USD')
+    expect(findCurrency('almuerzo $45', ['USD', 'EUR'])).toBeNull()
+    expect(findCurrency('almuerzo $45', ['ARS', 'UYU'])).toBeNull()
+    expect(findCurrency('almuerzo $45', ['USD'])).toBeNull()
   })
 
   test('los datos sin moneda estaban en la principal', () => {
