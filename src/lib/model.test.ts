@@ -2,7 +2,8 @@ import { describe, expect, test } from 'vitest'
 import { toCsv } from './csv'
 import { convertible, findCurrency, flipRate, monthlyValue, quote, quoted, rateOn, toMain } from './fx'
 import { guessCurrency } from './locale'
-import { dueCount, MAX_CATCH_UP, materialize, sanitize } from './model'
+import { dueCount, MAX_CATCH_UP, materialize, sanitize, swapCurrencies } from './model'
+import { ledger } from './ledger'
 import type { Entry, Settings, Tx } from './types'
 
 const tx = (over: Partial<Tx> = {}) => ({ id: 'a', kind: 'expense', amount: 10, category: 'comida', note: 'Café', date: '2026-10-12', ...over })
@@ -88,6 +89,36 @@ describe('dos monedas', () => {
     expect(convertible('UYU', noRate)).toBe(false)
     expect(monthlyValue(rent, noRate)).toBe(0)
     expect(monthlyValue(rent, { ...usdUyu, second: '', rate: 0 })).toBe(0)
+  })
+
+  test('intercambiar principal y segunda no cambia lo que vale cada movimiento', () => {
+    // Principal USD, segunda ARS a 1400. Hay un gasto viejo en UYU anotado a 40 por dólar.
+    const before = sanitize({
+      txs: [
+        tx({ id: 'usd', amount: 100, currency: 'USD' }),
+        tx({ id: 'ars', amount: 14000, currency: 'ARS', rate: 1400 }),
+        tx({ id: 'uyu', amount: 400, currency: 'UYU', rate: 40 }),
+      ],
+      settings: { currency: 'USD', second: 'ARS', rate: 1400, budget: 1000, income: 2000 },
+    }, 'USD')
+    const values = (s: typeof before) => Object.fromEntries(ledger(s).map((t) => [t.id, t.value]))
+    expect(values(before)).toEqual({ usd: 100, ars: 10, uyu: 10 })
+
+    const after = swapCurrencies(before)
+    expect(after.settings).toMatchObject({ currency: 'ARS', second: 'USD', budget: 1400000, income: 2800000 })
+    expect(values(after)).toEqual({ usd: 140000, ars: 14000, uyu: 14000 })
+
+    // Actualizar el cambio después no mueve el histórico.
+    const later = { ...after, settings: { ...after.settings, rate: flipRate(1500) } }
+    expect(values(later)).toEqual(values(after))
+
+    // Y deshacer el intercambio devuelve los valores de partida.
+    expect(values(swapCurrencies(after))).toEqual(values(before))
+  })
+
+  test('sin segunda moneda o sin cambio no hay intercambio', () => {
+    const s = sanitize({ settings: { currency: 'USD', second: 'UYU', rate: 0 } }, 'USD')
+    expect(swapCurrencies(s)).toBe(s)
   })
 
   test('una fecha pasada toma el cambio del movimiento más cercano a ese día', () => {

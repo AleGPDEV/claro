@@ -47,6 +47,8 @@ describe('qué número es el importe', () => {
     ['café 3 y 2 medialunas', 3, 'Café y 2 medialunas'],
     ['pago 3 cuotas 1200', 1200, 'Pago 3 cuotas'],
     ['12 uber 2 personas', 12, 'Uber 2 personas'],
+    ['café 150 y medialunas 2', 150, 'Café y medialunas 2'],
+    ['uber 10 y taxi 5', 15, 'Uber'],
   ])('%s → %d', (text, amount, note) => {
     const p = parse(text)
     expect(p.amount).toBe(amount)
@@ -56,7 +58,17 @@ describe('qué número es el importe', () => {
   test('sin número no hay importe', () => expect(parse('café').amount).toBeNull())
 
   // Con un único número no hay forma de saber que es un año: se toma como monto y se avisa.
-  test('un único número siempre es el monto, con aviso si parece un año', () => {
+  test('dos gastos de categorías distintas no se suman: el segundo queda para después', () => {
+    expect(parse('super 1200 y farmacia 400')).toMatchObject({ amount: 1200, note: 'Super', category: 'super', doubt: 'two', next: 'farmacia 400' })
+    expect(parse('ayer cena 30 + cine 12')).toMatchObject({ amount: 30, note: 'Cena', date: '2026-10-11', next: 'ayer cine 12' })
+    expect(parse('cosas 100 y farmacia 40')).toMatchObject({ amount: 100, next: 'farmacia 40' })
+    expect(parse('farmacia 400')).toMatchObject({ amount: 400, category: 'salud', doubt: null, next: null })
+    expect(parse('almuerzo 450 y propina 50').next).toBeNull()
+  })
+
+  test('un único número siempre es el monto, con aviso si coincide con este año o el siguiente', () => {
+    expect(parse('concierto 2027').doubt).toBe('year')
+    for (const text of ['nafta 2000', 'super 1950', '4 amigos asado 2000', 'viaje 2028']) expect(parse(text).doubt).toBeNull()
     expect(parse('concierto 2026')).toMatchObject({ amount: 2026, doubt: 'year' })
     expect(parse('concierto $2026').doubt).toBeNull()
     expect(parse('concierto 2026 80').doubt).toBe('several')

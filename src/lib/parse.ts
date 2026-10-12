@@ -17,10 +17,12 @@ export interface Parsed {
   /** Moneda mencionada en el texto ("usd", "pesos"…), o `null` si no se indica. */
   currency: string | null
   /**
-   * Duda que conviene mostrar: el único número parece un año, o había varios
-   * números y se eligió uno por su posición.
+   * Duda que conviene mostrar: el único número coincide con este año o el siguiente,
+   * había varios números y se eligió uno por su posición, o la línea trae dos gastos.
    */
-  doubt: 'year' | 'several' | null
+  doubt: 'year' | 'several' | 'two' | null
+  /** Con dos gastos en una línea ("super 1200 y farmacia 400"), el texto del segundo. */
+  next: string | null
 }
 
 /** Acepta "3,50", "3.50", "1.234,56", "1,234.56" y "1.500" (miles). */
@@ -46,6 +48,7 @@ export function parseAmount(raw: string): number | null {
 const NUMBER = /(?<![\p{L}\p{N}.,])\d+(?:[.,]\d+)*(?![\p{L}\p{N}])/gu
 const DAYS: Record<string, number> = { hoy: 0, ayer: -1, anteayer: -2, antier: -2 }
 const REFUND_WORDS = ['devolucion', 'reembolso', 'reintegro']
+const JOINER = /^\s*(?:y|\+|mas|más)(?:\s+(\p{L}+))?\s*$/iu
 
 interface Candidate {
   start: number
@@ -63,15 +66,22 @@ interface Candidate {
 
 // Palabras terminadas en "s" que no son un plural contable.
 const NOT_PLURAL = ['mas', 'más', 'menos', 'lunes', 'martes', 'miercoles', 'miércoles', 'jueves', 'viernes', 'gratis', 'antes', 'despues', 'después']
+const isPlural = (word: string) => /^\p{L}{3,}s$/iu.test(word) && !NOT_PLURAL.includes(word.toLowerCase())
+/** Un entero de los que cuentan cosas: una o dos cifras, hasta 31, sin símbolo ni signo. */
+const countsThings = (c: Pick<Candidate, 'raw' | 'marked' | 'negative'>) =>
+  !c.marked && !c.negative && /^\d{1,2}$/.test(c.raw) && Number(c.raw) <= 31
 
 /** Un entero pequeño seguido de un plural: "2 medialunas", "3 cuotas", "4 amigos". */
 function isQuantity(text: string, c: Pick<Candidate, 'end' | 'raw' | 'marked' | 'negative'>) {
-  if (c.marked || c.negative || !/^\d{1,2}$/.test(c.raw) || Number(c.raw) > 31) return false
-  const word = text.slice(c.end).match(/^\s+(\p{L}{3,}s)(?!\p{L})/iu)?.[1]
-  return word !== undefined && !NOT_PLURAL.includes(word.toLowerCase())
+  const word = text.slice(c.end).match(/^\s+(\p{L}+)(?!\p{L})/u)?.[1]
+  return countsThings(c) && word !== undefined && isPlural(word)
 }
 
-function candidates(text: string): Candidate[] {
+/**
+ * Los números del texto que pueden ser el monto. Si la línea trae dos gastos distintos,
+ * `cut` es donde termina el primero y solo se devuelven sus números.
+ */
+function candidates(text: string): { found: Candidate[]; cut: number | null } {
   const found: Candidate[] = []
   for (const m of text.matchAll(NUMBER)) {
     let start = m.index
@@ -108,24 +118,36 @@ function candidates(text: string): Candidate[] {
     }
   }
 
-  // Dos montos unidos por "y", "+" o "más" se suman, con o sin el concepto en medio:
-  // "uber 10 y 5 propina" → 15, "almuerzo 450 y propina 50" → 500. Una cantidad no se suma.
+  // Dos montos unidos por "y", "+" o "más", con o sin una palabra en medio:
+  // "uber 10 y 5 propina" → 15, "almuerzo 450 y propina 50" → 500.
   for (let i = 0; i < found.length - 1; ) {
     const a = found[i]
     const b = found[i + 1]
-    const joined = /^\s*(?:y|\+|mas|más)(?:\s+\p{L}+)?\s*$/iu.test(text.slice(a.end, b.start))
-    if (joined && a.value !== null && b.value !== null && !b.negative && !a.quantity && !b.quantity) {
-      const value = Math.round((a.value + b.value) * 100) / 100
-      found.splice(i, 2, { ...a, end: b.end, raw: String(value), value, marked: a.marked || b.marked, cents: a.cents || b.cents })
-    } else i++
+    const join = text.slice(a.end, b.start).match(JOINER)
+    if (!join || a.value === null || b.value === null || b.negative || a.quantity || b.quantity) {
+      i++
+      continue
+    }
+    const word = join[1]
+    // "café 150 y medialunas 2": lo que sigue a un plural es cuántas, no cuánto.
+    if (word && isPlural(word) && countsThings(b)) {
+      b.quantity = true
+      i++
+      continue
+    }
+    // "super 1200 y farmacia 400": la palabra del medio es de otra categoría, son dos gastos.
+    const other = word ? detectCategory(word) : null
+    if (other && other !== detectCategory(text.slice(0, a.start))) return { found: found.slice(0, i + 1), cut: a.end }
+    const value = Math.round((a.value + b.value) * 100) / 100
+    found.splice(i, 2, { ...a, end: b.end, raw: String(value), value, marked: a.marked || b.marked, cents: a.cents || b.cents })
   }
-  return found
+  return { found, cut: null }
 }
 
 /**
  * Elige cuál de los números es el monto, dejando fuera las cantidades si hay algo más.
- * Por orden: el que lleva símbolo de moneda,
- * el único con céntimos, el del final, el del principio y, si no, el último.
+ * Por orden: el que lleva símbolo de moneda, el único con céntimos, el del final,
+ * el del principio y, si no, el último.
  */
 function pickAmount(text: string, all: Candidate[]): { chosen?: Candidate; doubt: Parsed['doubt'] } {
   const amounts = all.filter((c) => !c.quantity)
@@ -136,7 +158,9 @@ function pickAmount(text: string, all: Candidate[]): { chosen?: Candidate; doubt
   const chosen =
     found.find((c) => c.end === text.length) ?? found.find((c) => c.start === 0) ?? found[found.length - 1]
   if (found.length > 1) return { chosen, doubt: 'several' }
-  return { chosen, doubt: chosen && /^(19|20)\d{2}$/.test(chosen.raw) ? 'year' : null }
+  // Solo este año o el que viene: 1950 o 2000 son montos corrientes en pesos.
+  const year = Number(today().slice(0, 4))
+  return { chosen, doubt: chosen && [year, year + 1].includes(Number(chosen.raw)) ? 'year' : null }
 }
 
 /**
@@ -155,15 +179,25 @@ export function parseEntry(text: string, learned: Record<string, string>, curren
   if (mention) rest = mention.text
 
   let date = today()
+  let dayWord = ''
   rest = rest
     .replace(/(^|\s)(hoy|ayer|anteayer|antier)(?=\s|$)/i, (_, pre: string, word: string) => {
       date = addDays(today(), DAYS[word.toLowerCase()])
+      dayWord = word
       return pre
     })
     .replace(/\s+/g, ' ')
     .trim()
 
-  const { chosen, doubt } = pickAmount(rest, candidates(rest))
+  const { found, cut } = candidates(rest)
+  // El segundo gasto conserva la fecha escrita ("ayer super 1200 y farmacia 400").
+  let next: string | null = null
+  if (cut !== null) {
+    next = `${dayWord} ${rest.slice(cut).replace(/^\s*(?:y|\+|mas|más)\s+/iu, '')}`.trim()
+    rest = rest.slice(0, cut)
+  }
+
+  const { chosen, doubt } = pickAmount(rest, found)
   const amount = chosen?.value ?? null
   if (chosen) rest = `${rest.slice(0, chosen.start)} ${rest.slice(chosen.end)}`
 
@@ -179,5 +213,10 @@ export function parseEntry(text: string, learned: Record<string, string>, curren
   const refundWord = tokenize(note).some((t) => wordForms(t).some((f) => REFUND_WORDS.includes(f)))
   const refund = kind === 'expense' && (refundWord || chosen?.negative === true)
 
-  return { amount, kind, refund, note, category, date, currency: mention?.code ?? null, doubt: amount === null ? null : doubt }
+  return {
+    amount, kind, refund, note, category, date,
+    currency: mention?.code ?? null,
+    doubt: amount === null ? null : next !== null ? 'two' : doubt,
+    next: amount === null ? null : next,
+  }
 }

@@ -1,10 +1,11 @@
 import { useMemo, useSyncExternalStore } from 'react'
 import { normalize } from './categories'
 import { addDays, today } from './dates'
-import { flipRate, rateOn, txValue } from './fx'
+import { rateOn } from './fx'
+import { ledger } from './ledger'
 import { guessCurrency } from './locale'
-import { defaults as modelDefaults, materialize, sanitize } from './model'
-import type { Entry, Recurring, Settings, State, Tx } from './types'
+import { defaults as modelDefaults, materialize, sanitize, swapCurrencies } from './model'
+import type { Recurring, Settings, State, Tx } from './types'
 
 export { CURRENCIES } from './locale'
 export { dueCount, nextDue } from './model'
@@ -127,16 +128,8 @@ export function useLedger() {
   return { ...s, txs }
 }
 
-export const ledger = (s: Pick<State, 'txs' | 'settings'>): Entry[] =>
-  s.txs.map((t) => {
-    const value = txValue(t, s.settings)
-    return { ...t, value: value ?? 0, unconverted: value === null }
-  })
-
 const learn = (tx: Pick<Tx, 'note' | 'kind' | 'category'>) =>
   tx.note && tx.kind === 'expense' ? { ...state.learned, [normalize(tx.note)]: tx.category } : state.learned
-
-const round2 = (n: number) => Math.round(n * 100) / 100
 
 export const actions = {
   /** Si el movimiento no está en la moneda principal, se guarda con él el tipo de cambio de su fecha. */
@@ -184,20 +177,10 @@ export const actions = {
       settings: { ...s, currency: code, entryCurrency: s.entryCurrency === s.currency ? code : s.entryCurrency },
     })
   },
-  /**
-   * La segunda moneda pasa a ser la principal; presupuesto e ingreso se convierten. Lo anotado
-   * en la principal anterior queda con el cambio de hoy, para que su valor no se mueva después.
-   */
+  /** La segunda moneda pasa a ser la principal. */
   swapCurrencies() {
-    const s = state.settings
-    if (!s.second || !(s.rate > 0)) return
-    const rate = flipRate(s.rate)
-    const convert = (n: number) => round2(n * s.rate)
-    commit({
-      ...state,
-      txs: state.txs.map((t) => (t.currency === s.currency && !t.rate ? { ...t, rate } : t)),
-      settings: { ...s, currency: s.second, second: s.currency, rate, budget: convert(s.budget), income: convert(s.income) },
-    })
+    const next = swapCurrencies(state)
+    if (next !== state) commit(next)
   },
   /** Fijos anotados en la segunda moneda: mientras existan no se puede quitar ni cambiar. */
   fixedInSecond() {

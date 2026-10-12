@@ -50,7 +50,8 @@ export default function QuickAdd() {
     const amount = entry.refund ? -entry.amount : entry.amount
     const id = actions.addTx({ kind: entry.kind, amount, currency, category: entry.category, note: entry.note, date: entry.date })
     setAdded({ id, label: `${entry.note || cat(entry.category).name} · ${money(entry.amount, false, currency)}` })
-    setText('')
+    // Con dos gastos en la línea, el segundo queda escrito para anotarlo con otro Enter.
+    setText(entry.next ?? '')
     setPicked(null)
     setDate(null)
   }
@@ -101,6 +102,11 @@ export default function QuickAdd() {
           {entry.doubt === 'year' && (
             <p className="hint doubt" role="status">
               ¿{parsed.amount} es el monto o un año? Se va a registrar como monto. Si el monto es otro, escribilo al final.
+            </p>
+          )}
+          {entry.doubt === 'two' && (
+            <p className="hint doubt" role="status">
+              Parecen dos gastos distintos. Se anota primero este; «{entry.next}» queda escrito para que lo agregues después.
             </p>
           )}
           {entry.doubt === 'several' && (

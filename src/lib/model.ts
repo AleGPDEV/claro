@@ -1,6 +1,6 @@
 import { isCategory } from './categories'
 import { addDays, addMonths, iso, parseDate } from './dates'
-import { snapshotRate } from './fx'
+import { flipRate, snapshotRate } from './fx'
 import { CURRENCIES } from './locale'
 import { MAX_AMOUNT } from './parse'
 import type { Every, Recurring, Settings, State, Tx } from './types'
@@ -95,6 +95,32 @@ export function sanitize(raw: unknown, fallbackCurrency: string, fallbackSecond 
       : {}
 
   return { txs, recurring, learned, settings }
+}
+
+const round2 = (n: number) => Math.round(n * 100) / 100
+
+/**
+ * La segunda moneda pasa a ser la principal; presupuesto e ingreso se convierten.
+ * El cambio guardado en un movimiento son unidades de su moneda por 1 de la principal, así que
+ * al cambiar la principal hay que reexpresarlo:
+ *  - lo anotado en la principal anterior queda con el cambio de hoy, para que su valor no se mueva después;
+ *  - lo anotado en una tercera moneda pasa de "por 1 de la anterior" a "por 1 de la nueva".
+ * Lo anotado en la nueva principal conserva su cambio, que solo vuelve a usarse si se deshace el intercambio.
+ */
+export function swapCurrencies(state: State): State {
+  const s = state.settings
+  if (!s.second || !(s.rate > 0)) return state
+  const rate = flipRate(s.rate)
+  const txs = state.txs.map((t) => {
+    if (t.currency === s.second) return t
+    if (t.currency === s.currency) return t.rate ? t : { ...t, rate }
+    return t.rate ? { ...t, rate: Number((t.rate / s.rate).toPrecision(8)) } : t
+  })
+  return {
+    ...state,
+    txs,
+    settings: { ...s, currency: s.second, second: s.currency, rate, budget: round2(s.budget * s.rate), income: round2(s.income * s.rate) },
+  }
 }
 
 const occurrence = (start: string, every: Every, n: number) =>
