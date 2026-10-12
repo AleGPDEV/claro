@@ -3,10 +3,11 @@ import { download, downloadBackup } from '../lib/backup'
 import { toCsv } from '../lib/csv'
 import { dayLabel, today } from '../lib/dates'
 import { demoData } from '../lib/demo'
+import { isBimonetary, quote, quoted } from '../lib/fx'
 import { decimalSeparator } from '../lib/locale'
 import { parseAmount } from '../lib/parse'
 import { hourlyRate } from '../lib/stats'
-import { actions, CURRENCIES, getState, importState, isPersisted, useMoney, useStore } from '../lib/store'
+import { actions, CURRENCIES, getState, importState, isPersisted, useLedger, useMoney } from '../lib/store'
 import type { Settings } from '../lib/types'
 
 function NumberField({ label, value, onCommit }: { label: string; value: number; onCommit: (n: number) => void }) {
@@ -20,8 +21,17 @@ function NumberField({ label, value, onCommit }: { label: string; value: number;
 }
 
 export default function SettingsView() {
-  const { settings, txs } = useStore()
+  const { settings, txs } = useLedger()
   const money = useMoney()
+  const { currency: main, second } = settings
+  const q = quote(main, second)
+
+  const changeMain = (code: string) => {
+    const mine = txs.filter((t) => t.currency === main).length
+    // Sin segunda moneda, cambiar la principal solo puede ser corregir un error: los números no cambian.
+    if (code !== second && mine > 0 && !confirm(`Tus ${mine} movimientos en ${main} van a pasar a figurar en ${code}, con los mismos números. Hacelo solo si te habías equivocado de moneda. ¿Continuar?`)) return
+    actions.setMainCurrency(code)
+  }
   const file = useRef<HTMLInputElement>(null)
   const [persisted, setPersisted] = useState<boolean | null>(null)
   const rate = hourlyRate(settings)
@@ -50,17 +60,49 @@ export default function SettingsView() {
       </header>
 
       <section className="card form">
-        <label className="field">
-          <span>Moneda</span>
-          <select value={settings.currency} onChange={(e) => actions.setSettings({ currency: e.target.value })}>
-            {CURRENCIES.map((c) => (
-              <option key={c}>{c}</option>
-            ))}
-          </select>
-        </label>
-        <NumberField key={`b${settings.budget}`} label="Presupuesto mensual" value={settings.budget} onCommit={(budget) => actions.setSettings({ budget })} />
         <div className="row">
-          <NumberField key={`i${settings.income}`} label="Ingreso mensual neto" value={settings.income} onCommit={(income) => actions.setSettings({ income })} />
+          <label className="field">
+            <span>Moneda principal</span>
+            <select value={main} onChange={(e) => changeMain(e.target.value)}>
+              {CURRENCIES.map((c) => (
+                <option key={c}>{c}</option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>Segunda moneda</span>
+            <select value={second} onChange={(e) => actions.setSecondCurrency(e.target.value)}>
+              <option value="">Ninguna</option>
+              {CURRENCIES.filter((c) => c !== main).map((c) => (
+                <option key={c}>{c}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+        {second && (
+          <>
+            <NumberField
+              key={`r${main}${second}${settings.rate}`}
+              label={`Tipo de cambio: 1 ${q.base} = ¿cuántos ${q.counter}?`}
+              value={quoted(settings.rate, q.inverted)}
+              onCommit={(x) => actions.setSettings({ rate: quoted(x, q.inverted) })}
+            />
+            {isBimonetary(settings) ? (
+              <>
+                <p className="muted small">
+                  Los totales se muestran en {main}. Cada movimiento en {second} guarda el cambio del día en que lo anotás,
+                  así que actualizar este valor no altera lo ya registrado.
+                </p>
+                <button onClick={() => actions.swapCurrencies()}>Usar {second} como principal</button>
+              </>
+            ) : (
+              <p className="warn small">Indicá el tipo de cambio para poder anotar movimientos en {second}.</p>
+            )}
+          </>
+        )}
+        <NumberField key={`b${settings.budget}`} label={`Presupuesto mensual (${main})`} value={settings.budget} onCommit={(budget) => actions.setSettings({ budget })} />
+        <div className="row">
+          <NumberField key={`i${settings.income}`} label={`Ingreso mensual neto (${main})`} value={settings.income} onCommit={(income) => actions.setSettings({ income })} />
           <NumberField key={`h${settings.weeklyHours}`} label="Horas / semana" value={settings.weeklyHours} onCommit={(h) => actions.setSettings({ weeklyHours: h || 40 })} />
         </div>
         {rate > 0 && <p className="muted small">Una hora de tu trabajo vale {money(rate)}. Claro lo usa para traducir gastos a tiempo.</p>}
@@ -88,7 +130,7 @@ export default function SettingsView() {
         )}
         <div className="row">
           <button onClick={downloadBackup}>Copia (JSON)</button>
-          <button onClick={() => download(`claro-${today()}.csv`, 'text/csv;charset=utf-8', toCsv(txs, decimalSeparator()))}>Exportar CSV</button>
+          <button onClick={() => download(`claro-${today()}.csv`, 'text/csv;charset=utf-8', toCsv(txs, decimalSeparator(), main))}>Exportar CSV</button>
         </div>
         <button onClick={() => file.current?.click()}>Restaurar una copia…</button>
         <input ref={file} type="file" accept="application/json,.json" hidden onChange={(e) => { importJson(e.target.files?.[0]); e.target.value = '' }} />

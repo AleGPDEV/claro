@@ -2,8 +2,8 @@ import { useState } from 'react'
 import { cat } from '../lib/categories'
 import { addDays, diffDays, minDate, parseDate, today } from '../lib/dates'
 import { buckets, byCategory, compare, dailyTotals, range, shift, sum, type Period, type PeriodKind } from '../lib/stats'
-import { useMoney, useStore } from '../lib/store'
-import type { Tx } from '../lib/types'
+import { useLedger, useMoney } from '../lib/store'
+import type { Entry, Tx } from '../lib/types'
 import { Delta } from './Today'
 import TxList from './TxList'
 
@@ -15,7 +15,7 @@ const KINDS: { id: PeriodKind; label: string }[] = [
 
 const ARROWS: Record<string, number> = { ArrowUp: -1, ArrowDown: 1, ArrowLeft: -7, ArrowRight: 7 }
 
-function Heatmap({ txs, year }: { txs: Tx[]; year: number }) {
+function Heatmap({ txs, year }: { txs: Entry[]; year: number }) {
   const money = useMoney()
   const [active, setActive] = useState<string | null>(null)
   const from = `${year}-01-01`
@@ -76,7 +76,7 @@ function Heatmap({ txs, year }: { txs: Tx[]; year: number }) {
 }
 
 export default function Analysis({ period, setPeriod, onEdit }: { period: Period; setPeriod: (p: Period) => void; onEdit: (tx: Tx) => void }) {
-  const { txs } = useStore()
+  const { txs } = useLedger()
   const money = useMoney()
   const [selected, setSelected] = useState<number | null>(null)
   const [limit, setLimit] = useState(30)

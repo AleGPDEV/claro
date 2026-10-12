@@ -1,5 +1,5 @@
 import { addDays, addMonths, daysInMonth, diffDays, iso, minDate, parseDate, today } from './dates'
-import type { Kind, Settings, Tx } from './types'
+import type { Entry, Kind, Settings } from './types'
 
 export type PeriodKind = 'week' | 'month' | 'year'
 export interface Period {
@@ -7,8 +7,9 @@ export interface Period {
   anchor: string
 }
 
-export const sum = (txs: Tx[], from: string, to: string, kind: Kind = 'expense') =>
-  txs.reduce((s, t) => (t.kind === kind && t.date >= from && t.date <= to ? s + t.amount : s), 0)
+// Todos los cálculos usan `value`: el monto ya convertido a la moneda principal.
+export const sum = (txs: Entry[], from: string, to: string, kind: Kind = 'expense') =>
+  txs.reduce((s, t) => (t.kind === kind && t.date >= from && t.date <= to ? s + t.value : s), 0)
 
 const MONTHS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
 
@@ -40,7 +41,7 @@ export function shift(p: Period, n: number): Period {
 }
 
 /** Total del periodo frente al mismo tramo transcurrido del periodo anterior. */
-export function compare(p: Period, txs: Tx[]) {
+export function compare(p: Period, txs: Entry[]) {
   const r = range(p)
   const prev = range(shift(p, -1))
   const elapsed = diffDays(r.from, minDate(today(), r.to))
@@ -58,7 +59,7 @@ export interface Bucket {
   current: boolean
 }
 
-export function buckets(p: Period, txs: Tx[]): Bucket[] {
+export function buckets(p: Period, txs: Entry[]): Bucket[] {
   const r = range(p)
   const t = today()
   if (p.kind === 'year') {
@@ -79,19 +80,19 @@ export function buckets(p: Period, txs: Tx[]): Bucket[] {
   })
 }
 
-export function byCategory(txs: Tx[], from: string, to: string) {
+export function byCategory(txs: Entry[], from: string, to: string) {
   const totals = new Map<string, number>()
   for (const t of txs)
     if (t.kind === 'expense' && t.date >= from && t.date <= to)
-      totals.set(t.category, (totals.get(t.category) ?? 0) + t.amount)
+      totals.set(t.category, (totals.get(t.category) ?? 0) + t.value)
   // Una categoría con más devoluciones que gastos no es un gasto del periodo.
   return [...totals].map(([id, total]) => ({ id, total })).filter((c) => c.total > 0).sort((a, b) => b.total - a.total)
 }
 
-export function dailyTotals(txs: Tx[], from: string, to: string) {
+export function dailyTotals(txs: Entry[], from: string, to: string) {
   const map = new Map<string, number>()
   for (const t of txs)
-    if (t.kind === 'expense' && t.date >= from && t.date <= to) map.set(t.date, (map.get(t.date) ?? 0) + t.amount)
+    if (t.kind === 'expense' && t.date >= from && t.date <= to) map.set(t.date, (map.get(t.date) ?? 0) + t.value)
   return map
 }
 

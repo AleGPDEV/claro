@@ -1,11 +1,12 @@
 import { cat } from '../lib/categories'
 import { dayLabel } from '../lib/dates'
-import { useMoney } from '../lib/store'
-import type { Tx } from '../lib/types'
+import { useMoney, useStore } from '../lib/store'
+import type { Entry } from '../lib/types'
 
-export default function TxList({ txs, onEdit, showDays = true }: { txs: Tx[]; onEdit: (tx: Tx) => void; showDays?: boolean }) {
+export default function TxList({ txs, onEdit, showDays = true }: { txs: Entry[]; onEdit: (tx: Entry) => void; showDays?: boolean }) {
   const money = useMoney()
-  const days = new Map<string, Tx[]>()
+  const main = useStore().settings.currency
+  const days = new Map<string, Entry[]>()
   for (const t of [...txs].sort((a, b) => b.date.localeCompare(a.date))) {
     if (!days.has(t.date)) days.set(t.date, [])
     days.get(t.date)!.push(t)
@@ -18,7 +19,7 @@ export default function TxList({ txs, onEdit, showDays = true }: { txs: Tx[]; on
           {showDays && (
             <h3>
               <span>{dayLabel(date)}</span>
-              <span>{money(list.reduce((s, t) => (t.kind === 'expense' ? s + t.amount : s), 0))}</span>
+              <span>{money(list.reduce((s, t) => (t.kind === 'expense' ? s + t.value : s), 0))}</span>
             </h3>
           )}
           {list.map((t) => {
@@ -32,8 +33,9 @@ export default function TxList({ txs, onEdit, showDays = true }: { txs: Tx[]; on
                   <span>{t.note || c.name}</span>
                   <small>{c.name}{refund ? ' · devolución' : ''}{t.recurringId ? ' · fijo' : ''}</small>
                 </span>
-                <span className={incoming ? 'tx-amount income' : 'tx-amount'}>
-                  {incoming ? '+' : ''}{money(Math.abs(t.amount))}
+                <span className={`tx-amount stack ${incoming ? 'income' : ''}`}>
+                  {incoming ? '+' : ''}{money(Math.abs(t.amount), false, t.currency)}
+                  {t.currency !== main && <small className="muted">≈ {money(Math.abs(t.value))}</small>}
                 </span>
               </button>
             )

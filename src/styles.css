@@ -340,6 +340,7 @@ main {
 
 .chips {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
 }
@@ -401,6 +402,7 @@ button.danger {
 
 .row {
   display: flex;
+  align-items: flex-end;
   gap: 8px;
 }
 
@@ -415,6 +417,10 @@ button.danger {
   gap: 4px;
   font-size: 13px;
   color: var(--muted);
+}
+
+.field.narrow {
+  flex: 0 0 88px;
 }
 
 .field em {

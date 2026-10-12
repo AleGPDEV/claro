@@ -1,17 +1,28 @@
 import { useEffect, useRef, useState } from 'react'
 import { EXPENSE_CATEGORIES } from '../lib/categories'
 import { today } from '../lib/dates'
+import { isBimonetary, quote, quoted } from '../lib/fx'
 import { parseAmount } from '../lib/parse'
-import { actions } from '../lib/store'
+import { actions, useStore } from '../lib/store'
 import type { Tx } from '../lib/types'
 
 type Type = 'expense' | 'refund' | 'income'
 
+const show = (n: number) => (n > 0 ? String(n).replace('.', ',') : '')
+
 export default function EditSheet({ tx, onClose, onDelete }: { tx: Tx; onClose: () => void; onDelete: (tx: Tx) => void }) {
   const dialog = useRef<HTMLDialogElement>(null)
+  const { settings } = useStore()
+  const { currency: main, second } = settings
+  // El cambio se muestra como "1 USD = 40 UYU" aunque se guarde al revés.
+  const rateText = (currency: string, rate: number | undefined) =>
+    show(quoted(rate ?? (currency === second ? settings.rate : 0), quote(main, currency).inverted))
+
   const initial = {
     type: (tx.kind === 'income' ? 'income' : tx.amount < 0 ? 'refund' : 'expense') as Type,
-    amount: String(Math.abs(tx.amount)).replace('.', ','),
+    amount: show(Math.abs(tx.amount)),
+    currency: tx.currency,
+    rate: rateText(tx.currency, tx.rate),
     note: tx.note,
     // Un ingreso no tiene categoría de gasto: si se convierte en gasto, empieza en Otros.
     category: tx.kind === 'income' ? 'otros' : tx.category,
@@ -20,7 +31,12 @@ export default function EditSheet({ tx, onClose, onDelete }: { tx: Tx; onClose: 
   const [form, setForm] = useState(initial)
   const set = (patch: Partial<typeof form>) => setForm((f) => ({ ...f, ...patch }))
   const value = parseAmount(form.amount)
+  const foreign = form.currency !== main
+  const q = quote(main, form.currency)
+  const rate = foreign ? parseAmount(form.rate) : null
+  const valid = value !== null && form.date !== '' && (!foreign || rate !== null)
   const dirty = (Object.keys(initial) as (keyof typeof initial)[]).some((k) => form[k] !== initial[k])
+  const currencies = [...new Set([main, ...(isBimonetary(settings) ? [second] : []), tx.currency])]
 
   // showModal() retiene el foco dentro del diálogo y lo devuelve al cerrar.
   useEffect(() => {
@@ -51,12 +67,15 @@ export default function EditSheet({ tx, onClose, onDelete }: { tx: Tx; onClose: 
         className="form"
         onSubmit={(e) => {
           e.preventDefault()
-          if (value === null || !form.date) return
+          if (!valid || value === null) return
           const income = form.type === 'income'
+          const { rate: _previous, ...rest } = tx
           actions.updateTx({
-            ...tx,
+            ...rest,
             kind: income ? 'income' : 'expense',
             amount: form.type === 'refund' ? -value : value,
+            currency: form.currency,
+            ...(foreign && rate !== null ? { rate: quoted(rate, q.inverted) } : {}),
             category: income ? 'ingreso' : form.category,
             note: form.note.trim(),
             date: form.date,
@@ -78,7 +97,23 @@ export default function EditSheet({ tx, onClose, onDelete }: { tx: Tx; onClose: 
             <span>Monto</span>
             <input inputMode="decimal" value={form.amount} onChange={(e) => set({ amount: e.target.value })} />
           </label>
+          {currencies.length > 1 && (
+            <label className="field narrow">
+              <span>Moneda</span>
+              <select value={form.currency} onChange={(e) => set({ currency: e.target.value, rate: rateText(e.target.value, e.target.value === tx.currency ? tx.rate : undefined) })}>
+                {currencies.map((c) => (
+                  <option key={c}>{c}</option>
+                ))}
+              </select>
+            </label>
+          )}
         </div>
+        {foreign && (
+          <label className="field">
+            <span>Tipo de cambio de ese día: 1 {q.base} = ¿cuántos {q.counter}?</span>
+            <input inputMode="decimal" value={form.rate} onChange={(e) => set({ rate: e.target.value })} />
+          </label>
+        )}
         <label className="field">
           <span>Nota</span>
           <input value={form.note} onChange={(e) => set({ note: e.target.value })} />
@@ -107,7 +142,7 @@ export default function EditSheet({ tx, onClose, onDelete }: { tx: Tx; onClose: 
             Eliminar
           </button>
           <button type="button" onClick={dismiss}>Cancelar</button>
-          <button className="primary" disabled={value === null}>Guardar</button>
+          <button className="primary" disabled={!valid}>Guardar</button>
         </div>
       </form>
     </dialog>

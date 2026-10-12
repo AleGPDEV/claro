@@ -1,5 +1,6 @@
 import { detectCategory, isCategory, normalize, tokenize, wordForms } from './categories'
 import { addDays, today } from './dates'
+import { findCurrency } from './fx'
 import type { Kind } from './types'
 
 /** Tope de cualquier monto, tecleado o importado. */
@@ -13,6 +14,8 @@ export interface Parsed {
   note: string
   category: string
   date: string
+  /** Moneda mencionada en el texto ("usd", "pesos"…), o `null` si no se indica. */
+  currency: string | null
   /**
    * Duda que conviene mostrar: el único número parece un año, o había varios
    * números y se eligió uno por su posición.
@@ -63,9 +66,10 @@ function candidates(text: string): Candidate[] {
     let end = start + m[0].length
     let marked = false
     let negative = false
-    if (/[$€]/.test(text[start - 1] ?? '')) {
+    const symbol = text.slice(0, start).match(/[$€]\s?$/)
+    if (symbol) {
       marked = true
-      start--
+      start -= symbol[0].length
     }
     if (text[start - 1] === '-' && (start === 1 || /\s/.test(text[start - 2]))) {
       negative = true
@@ -118,14 +122,20 @@ function pickAmount(text: string, found: Candidate[]): { chosen?: Candidate; dou
   return { chosen, doubt: chosen && /^(19|20)\d{2}$/.test(chosen.raw) ? 'year' : null }
 }
 
-/** Interpreta una entrada libre como "café 3,50", "ayer 20 cena", "+1500 sueldo" o "-20 cine". */
-export function parseEntry(text: string, learned: Record<string, string>): Parsed {
+/**
+ * Interpreta una entrada libre como "café 3,50", "ayer 20 cena", "+1500 sueldo" o "-20 cine".
+ * `currencies` son las monedas que el usuario maneja; si menciona una ("café 150 pesos") se devuelve.
+ */
+export function parseEntry(text: string, learned: Record<string, string>, currencies: string[] = []): Parsed {
   let rest = text.trim()
   let kind: Kind = 'expense'
   if (rest.startsWith('+')) {
     kind = 'income'
     rest = rest.slice(1)
   }
+
+  const mention = findCurrency(rest, currencies)
+  if (mention) rest = mention.text
 
   let date = today()
   rest = rest
@@ -152,5 +162,5 @@ export function parseEntry(text: string, learned: Record<string, string>): Parse
   const refundWord = tokenize(note).some((t) => wordForms(t).some((f) => REFUND_WORDS.includes(f)))
   const refund = kind === 'expense' && (refundWord || chosen?.negative === true)
 
-  return { amount, kind, refund, note, category, date, doubt: amount === null ? null : doubt }
+  return { amount, kind, refund, note, category, date, currency: mention?.code ?? null, doubt: amount === null ? null : doubt }
 }

@@ -1,21 +1,27 @@
 import { useMemo, useSyncExternalStore } from 'react'
 import { normalize } from './categories'
 import { addDays, today } from './dates'
+import { flipRate, snapshotRate, txValue } from './fx'
 import { guessCurrency } from './locale'
 import { defaults as modelDefaults, materialize, sanitize } from './model'
-import type { Recurring, Settings, State, Tx } from './types'
+import type { Entry, Recurring, Settings, State, Tx } from './types'
 
 export { CURRENCIES } from './locale'
-export { dueCount, monthlyCost, nextDue } from './model'
+export { dueCount, nextDue } from './model'
 
 const KEY = 'claro:v1'
 
-const fallbackCurrency = () =>
-  guessCurrency(navigator.languages ?? [navigator.language], Intl.DateTimeFormat().resolvedOptions().timeZone ?? '')
+/** Moneda principal de una instalación nueva; la del país se propone como segunda. */
+const DEFAULT_CURRENCY = 'USD'
 
-const defaults = () => modelDefaults(fallbackCurrency())
+function localCurrency() {
+  const local = guessCurrency(navigator.languages ?? [navigator.language], Intl.DateTimeFormat().resolvedOptions().timeZone ?? '')
+  return local === DEFAULT_CURRENCY ? '' : local
+}
 
-export const importState = (raw: unknown) => sanitize(raw, fallbackCurrency())
+const defaults = () => modelDefaults(DEFAULT_CURRENCY, localCurrency())
+
+export const importState = (raw: unknown) => sanitize(raw, DEFAULT_CURRENCY)
 
 /** Lee lo guardado; `null` si el almacenamiento no está disponible. */
 function read(): State | null {
@@ -105,12 +111,25 @@ if (state.settings.onboarded) requestPersistence()
 export const useStore = () => useSyncExternalStore(subscribe, () => state)
 export const getState = () => state
 
+/** El estado con cada movimiento convertido a la moneda principal; es lo que usan los cálculos. */
+export function useLedger() {
+  const s = useStore()
+  const txs = useMemo<Entry[]>(() => s.txs.map((t) => ({ ...t, value: txValue(t, s.settings) })), [s.txs, s.settings])
+  return { ...s, txs }
+}
+
+export const ledger = (s: State): Entry[] => s.txs.map((t) => ({ ...t, value: txValue(t, s.settings) }))
+
 const learn = (tx: Pick<Tx, 'note' | 'kind' | 'category'>) =>
   tx.note && tx.kind === 'expense' ? { ...state.learned, [normalize(tx.note)]: tx.category } : state.learned
 
+const round2 = (n: number) => Math.round(n * 100) / 100
+
 export const actions = {
-  addTx(tx: Omit<Tx, 'id'>) {
-    const full = { ...tx, id: crypto.randomUUID() }
+  /** El tipo de cambio del momento se guarda con el movimiento si no está en la moneda principal. */
+  addTx(tx: Omit<Tx, 'id' | 'rate'>) {
+    const rate = snapshotRate(tx.currency, state.settings)
+    const full: Tx = { ...tx, id: crypto.randomUUID(), ...(rate ? { rate } : {}) }
     commit({ ...state, txs: [...state.txs, full], learned: learn(tx) })
     return full.id
   },
@@ -136,6 +155,34 @@ export const actions = {
   setSettings(patch: Partial<Settings>) {
     commit({ ...state, settings: { ...state.settings, ...patch } })
   },
+  /**
+   * Cambia la moneda principal. Si es la segunda, se intercambian; si es otra, se entiende
+   * como una corrección y lo anotado en la principal pasa a estar en la nueva.
+   */
+  setMainCurrency(code: string) {
+    const s = state.settings
+    if (code === s.currency) return
+    if (code === s.second) return actions.swapCurrencies()
+    const relabel = <T extends { currency: string }>(x: T): T => (x.currency === s.currency ? { ...x, currency: code } : x)
+    commit({
+      ...state,
+      txs: state.txs.map(relabel),
+      recurring: state.recurring.map(relabel),
+      settings: { ...s, currency: code, entryCurrency: s.entryCurrency === s.currency ? code : s.entryCurrency },
+    })
+  },
+  /** La segunda moneda pasa a ser la principal; presupuesto e ingreso se convierten. */
+  swapCurrencies() {
+    const s = state.settings
+    if (!s.second) return
+    const convert = (n: number) => (s.rate > 0 ? round2(n * s.rate) : n)
+    actions.setSettings({ currency: s.second, second: s.currency, rate: flipRate(s.rate), budget: convert(s.budget), income: convert(s.income) })
+  },
+  setSecondCurrency(code: string) {
+    const s = state.settings
+    if (code === s.second) return
+    actions.setSettings({ second: code === s.currency ? '' : code, rate: 0, entryCurrency: s.currency })
+  },
   finishOnboarding(patch: Partial<Settings>) {
     actions.setSettings({ ...patch, onboarded: true, backupReminder: addDays(today(), 14) })
     requestPersistence()
@@ -154,12 +201,18 @@ export const actions = {
   },
 }
 
+/** Formatea dinero: por defecto en la moneda principal, o en la que se indique. */
 export function useMoney() {
   const { currency } = useStore().settings
   return useMemo(() => {
-    const full = new Intl.NumberFormat(undefined, { style: 'currency', currency })
-    const round = new Intl.NumberFormat(undefined, { style: 'currency', currency, maximumFractionDigits: 0 })
-    return (n: number, rounded = false) => (rounded ? round : full).format(n)
+    const cache = new Map<string, Intl.NumberFormat>()
+    const format = (code: string, rounded: boolean) => {
+      const key = `${code}${rounded}`
+      if (!cache.has(key))
+        cache.set(key, new Intl.NumberFormat(undefined, { style: 'currency', currency: code, ...(rounded ? { maximumFractionDigits: 0 } : {}) }))
+      return cache.get(key)!
+    }
+    return (n: number, rounded = false, code = currency) => format(code, rounded).format(n)
   }, [currency])
 }
 

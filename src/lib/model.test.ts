@@ -1,10 +1,13 @@
 import { describe, expect, test } from 'vitest'
 import { toCsv } from './csv'
+import { findCurrency, flipRate, monthlyValue, quote, quoted, toMain } from './fx'
 import { guessCurrency } from './locale'
 import { dueCount, MAX_CATCH_UP, materialize, sanitize } from './model'
-import type { Tx } from './types'
+import type { Entry, Settings, Tx } from './types'
 
 const tx = (over: Partial<Tx> = {}) => ({ id: 'a', kind: 'expense', amount: 10, category: 'comida', note: 'Café', date: '2026-10-12', ...over })
+const entry = (over: Partial<Entry> = {}) => ({ ...tx(), currency: 'USD', value: over.amount ?? 10, ...over }) as Entry
+const usdUyu = { ...sanitize(null, 'USD', 'UYU').settings, rate: 40 } satisfies Settings
 
 describe('sanitize', () => {
   test('datos vacíos o basura dan un estado inicial', () => {
@@ -69,6 +72,48 @@ describe('fijos', () => {
   })
 })
 
+describe('dos monedas', () => {
+  test('convierte a la principal con el cambio actual o con el guardado', () => {
+    expect(toMain(100, 'USD', undefined, usdUyu)).toBe(100)
+    expect(toMain(4000, 'UYU', undefined, usdUyu)).toBe(100)
+    expect(toMain(4000, 'UYU', 50, usdUyu)).toBe(80)
+    // Una moneda que ya no se usa y sin cambio guardado: no hay cómo convertirla.
+    expect(toMain(500, 'ARS', undefined, usdUyu)).toBe(500)
+  })
+
+  test('el cambio se muestra con la moneda fuerte a la izquierda', () => {
+    expect(quote('USD', 'UYU')).toMatchObject({ base: 'USD', counter: 'UYU', inverted: false })
+    expect(quote('UYU', 'USD')).toMatchObject({ base: 'USD', counter: 'UYU', inverted: true })
+    expect(quoted(flipRate(40), true)).toBe(40)
+  })
+
+  test('los fijos se suman en la principal', () => {
+    const r = { id: 'r', kind: 'expense', name: 'Alquiler', amount: 20000, currency: 'UYU', category: 'hogar', every: 'month', start: '2026-10-01', done: 0 } as const
+    expect(monthlyValue(r, usdUyu)).toBe(500)
+  })
+
+  test('reconoce la moneda mencionada', () => {
+    expect(findCurrency('café 150 pesos', ['USD', 'UYU'])?.code).toBe('UYU')
+    expect(findCurrency('20usd uber', ['USD', 'UYU'])?.code).toBe('USD')
+    expect(findCurrency('u$s 20 taxi', ['USD', 'UYU'])).toEqual({ code: 'USD', text: '$ 20 taxi' })
+    expect(findCurrency('cambié dólares', ['USD', 'UYU'])?.code).toBe('USD')
+    expect(findCurrency('taxi $20', ['USD', 'UYU'])).toBeNull()
+    expect(findCurrency('café 150 pesos', ['USD'])).toBeNull()
+    expect(findCurrency('pesas 20', ['USD', 'UYU'])).toBeNull()
+  })
+
+  test('los datos sin moneda estaban en la principal', () => {
+    const s = sanitize({ txs: [tx(), tx({ id: 'b', currency: 'UYU', rate: 40 })], settings: { currency: 'UYU', second: 'UYU' } }, 'USD')
+    expect(s.txs.map((t) => t.currency)).toEqual(['UYU', 'UYU'])
+    expect(s.settings).toMatchObject({ currency: 'UYU', second: '', rate: 0, entryCurrency: 'UYU' })
+  })
+
+  test('un fijo en la segunda moneda guarda el cambio del día', () => {
+    const base = sanitize({ recurring: [{ id: 'r', kind: 'expense', name: 'UTE', amount: 2000, currency: 'UYU', category: 'hogar', every: 'month', start: '2026-10-05', done: 0 }], settings: { currency: 'USD', second: 'UYU', rate: 40 } }, 'USD')
+    expect(materialize(base, '2026-10-12').txs[0]).toMatchObject({ amount: 2000, currency: 'UYU', rate: 40 })
+  })
+})
+
 describe('moneda por defecto', () => {
   test('la zona horaria decide aunque el idioma no tenga país', () => {
     expect(guessCurrency(['es'], 'America/Montevideo')).toBe('UYU')
@@ -79,22 +124,22 @@ describe('moneda por defecto', () => {
 })
 
 describe('CSV', () => {
-  const rows = [tx({ note: '=HYPERLINK("x")' }), tx({ id: 'b', amount: -3.5, note: 'Devolución "café"' })] as Tx[]
+  const rows = [entry({ note: '=HYPERLINK("x")' }), entry({ id: 'b', amount: -140, currency: 'UYU', value: -3.5, note: 'Devolución "café"' })]
 
   test('en español: BOM, punto y coma y coma decimal', () => {
-    const csv = toCsv(rows, ',')
-    expect(csv.startsWith('﻿fecha;tipo;monto;categoria;nota\r\n')).toBe(true)
-    expect(csv).toContain('2026-10-12;devolución;-3,5;"Comida";"Devolución ""café"""')
+    const csv = toCsv(rows, ',', 'USD')
+    expect(csv.startsWith('﻿fecha;tipo;monto;moneda;en_USD;categoria;nota\r\n')).toBe(true)
+    expect(csv).toContain('2026-10-12;devolución;-140;UYU;-3,5;"Comida";"Devolución ""café"""')
   })
 
   test('una nota que parece una fórmula se neutraliza', () => {
-    expect(toCsv(rows, '.')).toContain(`2026-10-12,gasto,10,"Comida","'=HYPERLINK(""x"")"`)
+    expect(toCsv(rows, '.', 'USD')).toContain(`2026-10-12,gasto,10,USD,10,"Comida","'=HYPERLINK(""x"")"`)
     const risky = ["-2+3+cmd|' /C calc'!A0", '+SUM(A1:A9)', '@SUM(1)', '-A1']
-    for (const note of risky) expect(toCsv([tx({ note }) as Tx], '.')).toContain(`,"'${note.replace(/"/g, '""')}"`)
+    for (const note of risky) expect(toCsv([entry({ note })], '.', 'USD')).toContain(`,"'${note.replace(/"/g, '""')}"`)
   })
 
   test('un signo seguido de número y texto llano no lleva apóstrofo', () => {
     for (const note of ['-5 test', '+10 extra', '-3,50 propina'])
-      expect(toCsv([tx({ note }) as Tx], '.')).toContain(`,"${note}"`)
+      expect(toCsv([entry({ note })], '.', 'USD')).toContain(`,"${note}"`)
   })
 })

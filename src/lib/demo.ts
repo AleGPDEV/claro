@@ -23,6 +23,7 @@ export function demoData(state: State): State {
   const scale = state.settings.budget > 0 ? state.settings.budget / 1500 : 1
   const round = (n: number) => Math.max(1, scale >= 20 ? Math.round(n) : Math.round(n * 100) / 100)
   const t = today()
+  const currency = state.settings.currency
   const txs: Tx[] = []
   for (let i = 0; i < 150; i++) {
     const date = addDays(t, -i)
@@ -30,12 +31,12 @@ export function demoData(state: State): State {
     for (let j = 0; j < count; j++) {
       const [note, category, min, max] = SAMPLES[Math.floor(Math.random() * SAMPLES.length)]
       const amount = round((min + Math.random() * (max - min)) * scale)
-      txs.push({ id: crypto.randomUUID(), kind: 'expense', amount, category, note, date })
+      txs.push({ id: crypto.randomUUID(), kind: 'expense', amount, currency, category, note, date })
     }
   }
   const start = addMonths(t.slice(0, 8) + '01', -4)
   const fixed = (name: string, amount: number, category: string, day: number, kind: 'expense' | 'income' = 'expense') => ({
-    id: crypto.randomUUID(), kind, name, amount: round(amount * scale), category, every: 'month' as const, start: addDays(start, day), done: 0,
+    id: crypto.randomUUID(), kind, name, amount: round(amount * scale), currency, category, every: 'month' as const, start: addDays(start, day), done: 0,
   })
   return {
     ...state,

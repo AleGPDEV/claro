@@ -2,9 +2,10 @@ import { cat } from '../lib/categories'
 import { downloadBackup } from '../lib/backup'
 import { addDays, dayLabel, daysInMonth, parseDate, today } from '../lib/dates'
 import { demoData } from '../lib/demo'
+import { monthlyValue } from '../lib/fx'
 import { byCategory, compare, dailyTotals, hourlyRate, sum, workTime, type PeriodKind } from '../lib/stats'
-import { actions, getState, monthlyCost, useMoney, useStore, type Money } from '../lib/store'
-import type { State, Tx } from '../lib/types'
+import { actions, getState, useLedger, useMoney, type Money } from '../lib/store'
+import type { Entry, State, Tx } from '../lib/types'
 import QuickAdd from './QuickAdd'
 import TxList from './TxList'
 
@@ -15,7 +16,7 @@ export function Delta({ value }: { value: number | null }) {
   return <span className={value > 0 ? 'delta up' : 'delta down'}>{value > 0 ? '▲' : '▼'} {pct}%</span>
 }
 
-function insights(state: State, money: Money) {
+function insights(state: Omit<State, 'txs'> & { txs: Entry[] }, money: Money) {
   const { txs, recurring, settings } = state
   const t = today()
   const d = parseDate(t)
@@ -26,7 +27,7 @@ function insights(state: State, money: Money) {
   if (month <= 0) return out
 
   const variable = txs.filter((x) => !x.recurringId)
-  const fixed = recurring.filter((r) => r.kind === 'expense').reduce((s, r) => s + monthlyCost(r), 0)
+  const fixed = recurring.filter((r) => r.kind === 'expense').reduce((s, r) => s + monthlyValue(r, settings), 0)
 
   if (d.getDate() >= 3) {
     const pace = (sum(variable, from, t) / d.getDate()) * dim + Math.max(fixed, month - sum(variable, from, t))
@@ -59,8 +60,8 @@ function insights(state: State, money: Money) {
   const reference = settings.budget || settings.income
   if (reference > 0) {
     const limit = reference * 0.005
-    const ants = variable.filter((x) => x.kind === 'expense' && x.date >= from && x.date <= t && x.amount > 0 && x.amount <= limit)
-    const total = ants.reduce((s, x) => s + x.amount, 0)
+    const ants = variable.filter((x) => x.kind === 'expense' && x.date >= from && x.date <= t && x.value > 0 && x.value <= limit)
+    const total = ants.reduce((s, x) => s + x.value, 0)
     if (ants.length >= 3) {
       out.push({
         icon: '🐜',
@@ -87,7 +88,7 @@ function insights(state: State, money: Money) {
 }
 
 export default function Today({ openPeriod, onEdit }: { openPeriod: (k: PeriodKind) => void; onEdit: (tx: Tx) => void }) {
-  const state = useStore()
+  const state = useLedger()
   const money = useMoney()
   const { txs, recurring, settings } = state
   const t = today()
@@ -102,7 +103,7 @@ export default function Today({ openPeriod, onEdit }: { openPeriod: (k: PeriodKi
 
   // El presupuesto diario se calcula sobre lo que queda tras los gastos fijos.
   const variable = txs.filter((x) => !x.recurringId)
-  const fixed = recurring.filter((r) => r.kind === 'expense').reduce((s, r) => s + monthlyCost(r), 0)
+  const fixed = recurring.filter((r) => r.kind === 'expense').reduce((s, r) => s + monthlyValue(r, settings), 0)
   const flexible = settings.budget - fixed
   const varToday = sum(variable, t, t)
   const varMonth = sum(variable, monthFrom, t)

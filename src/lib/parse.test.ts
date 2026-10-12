@@ -75,6 +75,19 @@ describe('fecha', () => {
   test('anteayer', () => expect(parse('taxi 9 anteayer').date).toBe('2026-10-10'))
 })
 
+describe('moneda', () => {
+  const both = ['USD', 'UYU']
+  test('sin mención no hay moneda', () => expect(parseEntry('taxi 20', {}, both).currency).toBeNull())
+  test('la mención marca el monto y sale de la nota', () => {
+    expect(parseEntry('café 150 pesos', {}, both)).toMatchObject({ amount: 150, currency: 'UYU', note: 'Café', category: 'comida' })
+    expect(parseEntry('20usd uber', {}, both)).toMatchObject({ amount: 20, currency: 'USD', note: 'Uber' })
+    expect(parseEntry('entradas u$s 45 para 2', {}, both)).toMatchObject({ amount: 45, currency: 'USD', note: 'Entradas para 2', doubt: null })
+    expect(parseEntry('-500 pesos devolución', {}, both)).toMatchObject({ amount: 500, currency: 'UYU', refund: true })
+  })
+  test('con una sola moneda, "pesos" es parte de la nota', () =>
+    expect(parseEntry('café 150 pesos', {}, ['USD'])).toMatchObject({ amount: 150, currency: null, note: 'Café pesos' }))
+})
+
 describe('ingresos y devoluciones', () => {
   test('"+" marca un ingreso', () => expect(parse('+1500 extra')).toMatchObject({ kind: 'income', category: 'ingreso', amount: 1500 }))
   test('"sueldo" es un ingreso', () => expect(parse('sueldo 50000').kind).toBe('income'))
