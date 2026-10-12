@@ -23,15 +23,17 @@ export default function TxList({ txs, onEdit, showDays = true }: { txs: Tx[]; on
           )}
           {list.map((t) => {
             const c = cat(t.category)
+            const refund = t.kind === 'expense' && t.amount < 0
+            const incoming = t.kind === 'income' || refund
             return (
               <button key={t.id} className="tx" onClick={() => onEdit(t)}>
                 <span className="tx-icon" aria-hidden="true">{c.icon}</span>
                 <span className="tx-text">
                   <span>{t.note || c.name}</span>
-                  <small>{c.name}{t.recurringId ? ' · fijo' : ''}</small>
+                  <small>{c.name}{refund ? ' · devolución' : ''}{t.recurringId ? ' · fijo' : ''}</small>
                 </span>
-                <span className={t.kind === 'income' ? 'tx-amount income' : 'tx-amount'}>
-                  {t.kind === 'income' ? '+' : ''}{money(t.amount)}
+                <span className={incoming ? 'tx-amount income' : 'tx-amount'}>
+                  {incoming ? '+' : ''}{money(Math.abs(t.amount))}
                 </span>
               </button>
             )

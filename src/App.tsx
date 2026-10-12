@@ -7,7 +7,7 @@ import SettingsView from './components/SettingsView'
 import Today from './components/Today'
 import { today } from './lib/dates'
 import type { Period, PeriodKind } from './lib/stats'
-import { useStore } from './lib/store'
+import { actions, useStore } from './lib/store'
 import type { Tx } from './lib/types'
 
 type Tab = 'hoy' | 'analisis' | 'fijos' | 'ajustes'
@@ -24,6 +24,7 @@ export default function App() {
   const [tab, setTab] = useState<Tab>('hoy')
   const [period, setPeriod] = useState<Period>({ kind: 'month', anchor: today() })
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [deleted, setDeleted] = useState<Tx | null>(null)
   const editing = txs.find((t) => t.id === editingId)
 
   useEffect(() => {
@@ -31,6 +32,12 @@ export default function App() {
     if (settings.theme === 'auto') delete root.dataset.theme
     else root.dataset.theme = settings.theme
   }, [settings.theme])
+
+  useEffect(() => {
+    if (!deleted) return
+    const timer = setTimeout(() => setDeleted(null), 7000)
+    return () => clearTimeout(timer)
+  }, [deleted])
 
   if (!settings.onboarded) return <Onboarding />
 
@@ -48,6 +55,14 @@ export default function App() {
         {tab === 'fijos' && <Fixed />}
         {tab === 'ajustes' && <SettingsView />}
       </main>
+      {deleted && (
+        <div className="toast" role="status">
+          Movimiento eliminado
+          <button className="link" onClick={() => { actions.restoreTx(deleted); setDeleted(null) }}>
+            Deshacer
+          </button>
+        </div>
+      )}
       <nav className="tabs" aria-label="Secciones">
         {TABS.map((t) => (
           <button key={t.id} className={tab === t.id ? 'on' : ''} aria-current={tab === t.id ? 'page' : undefined} onClick={() => setTab(t.id)}>
@@ -58,7 +73,17 @@ export default function App() {
           </button>
         ))}
       </nav>
-      {editing && <EditSheet tx={editing} onClose={() => setEditingId(null)} />}
+      {editing && (
+        <EditSheet
+          key={editing.id}
+          tx={editing}
+          onClose={() => setEditingId(null)}
+          onDelete={(tx) => {
+            actions.removeTx(tx.id)
+            setDeleted(tx)
+          }}
+        />
+      )}
     </div>
   )
 }

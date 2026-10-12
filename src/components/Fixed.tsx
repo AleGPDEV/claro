@@ -2,38 +2,61 @@ import { useState } from 'react'
 import { cat, detectCategory } from '../lib/categories'
 import { dayLabel, today } from '../lib/dates'
 import { parseAmount } from '../lib/parse'
-import { actions, monthlyCost, nextDue, useMoney, useStore } from '../lib/store'
-import type { Every } from '../lib/types'
+import { actions, dueCount, monthlyCost, nextDue, useMoney, useStore } from '../lib/store'
+import type { Every, Recurring } from '../lib/types'
 
 const EVERY: Record<Every, string> = { week: 'semana', month: 'mes', year: 'año' }
+const blank = () => ({ name: '', amount: '', every: 'month' as Every, start: today(), income: false })
 
 export default function Fixed() {
   const { recurring, settings } = useStore()
   const money = useMoney()
-  const [name, setName] = useState('')
-  const [amount, setAmount] = useState('')
-  const [every, setEvery] = useState<Every>('month')
-  const [start, setStart] = useState(today())
-  const [income, setIncome] = useState(false)
+  const [form, setForm] = useState(blank)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const set = (patch: Partial<ReturnType<typeof blank>>) => setForm((f) => ({ ...f, ...patch }))
+  const editing = recurring.find((r) => r.id === editingId)
 
   const expenses = recurring.filter((r) => r.kind === 'expense')
   const monthly = expenses.reduce((s, r) => s + monthlyCost(r), 0)
-  const value = parseAmount(amount)
+  const value = parseAmount(form.amount)
+
+  // Al editar, los cobros ya generados no cambian; solo cuenta si se mueve la fecha o la frecuencia.
+  const rescheduled = !editing || form.start !== nextDue(editing) || form.every !== editing.every
+  const overdue = rescheduled && form.start ? dueCount(form.start, form.every, today()) : 0
+
+  const edit = (r: Recurring) => {
+    setEditingId(r.id)
+    setForm({ name: r.name, amount: String(r.amount).replace('.', ','), every: r.every, start: nextDue(r), income: r.kind === 'income' })
+  }
+  const cancel = () => {
+    setEditingId(null)
+    setForm(blank())
+  }
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!name.trim() || value === null || !start) return
-    const category = income ? 'ingreso' : (detectCategory(name) ?? 'suscripciones')
-    actions.addRecurring({ kind: income ? 'income' : 'expense', name: name.trim(), amount: value, category, every, start })
-    setName('')
-    setAmount('')
+    const name = form.name.trim()
+    if (!name || value === null || !form.start) return
+    const kind = form.income ? 'income' : 'expense'
+    const category = form.income ? 'ingreso' : (detectCategory(name) ?? 'suscripciones')
+    if (editing) {
+      const keepCategory = name === editing.name && kind === editing.kind
+      actions.updateRecurring({
+        ...editing, name, kind, amount: value, every: form.every,
+        category: keepCategory ? editing.category : category,
+        ...(rescheduled ? { start: form.start, done: 0 } : {}),
+      })
+    } else {
+      actions.addRecurring({ kind, name, amount: value, category, every: form.every, start: form.start })
+    }
+    cancel()
   }
 
   return (
     <>
       <header className="top">
         <h1>Fijos</h1>
-        <span className="muted">Suscripciones, alquiler, nómina…</span>
+        <span className="muted">Suscripciones, alquiler, sueldo…</span>
       </header>
 
       <section className="hero">
@@ -49,18 +72,29 @@ export default function Fixed() {
         <section className="card">
           <div className="txlist">
             {[...recurring].sort((a, b) => monthlyCost(b) - monthlyCost(a)).map((r) => (
-              <div key={r.id} className="tx">
-                <span className="tx-icon" aria-hidden="true">{cat(r.category).icon}</span>
-                <span className="tx-text">
-                  <span>{r.name}</span>
-                  <small>
-                    {money(r.amount)} / {EVERY[r.every]} · próximo: {dayLabel(nextDue(r)).toLowerCase()}
-                  </small>
-                </span>
-                <span className={r.kind === 'income' ? 'tx-amount income' : 'tx-amount'}>
-                  {r.kind === 'income' ? '+' : ''}{money(monthlyCost(r) * 12, true)}<small className="muted"> /año</small>
-                </span>
-                <button className="icon-btn" aria-label={`Eliminar ${r.name}`} onClick={() => confirm(`¿Eliminar «${r.name}»? Los movimientos ya generados se conservan.`) && actions.removeRecurring(r.id)}>
+              <div key={r.id} className={r.id === editingId ? 'tx editing' : 'tx'}>
+                <button className="tx-main" onClick={() => edit(r)} aria-label={`Editar ${r.name}`}>
+                  <span className="tx-icon" aria-hidden="true">{cat(r.category).icon}</span>
+                  <span className="tx-text">
+                    <span>{r.name}</span>
+                    <small>
+                      {money(r.amount)} / {EVERY[r.every]} · próximo: {dayLabel(nextDue(r)).toLowerCase()}
+                    </small>
+                  </span>
+                  <span className={r.kind === 'income' ? 'tx-amount stack income' : 'tx-amount stack'}>
+                    {r.kind === 'income' ? '+' : ''}{money(monthlyCost(r) * 12, true)}
+                    <small className="muted">al año</small>
+                  </span>
+                </button>
+                <button
+                  className="icon-btn"
+                  aria-label={`Eliminar ${r.name}`}
+                  onClick={() => {
+                    if (!confirm(`¿Eliminar «${r.name}»? Los movimientos ya generados se conservan.`)) return
+                    if (r.id === editingId) cancel()
+                    actions.removeRecurring(r.id)
+                  }}
+                >
                   ×
                 </button>
               </div>
@@ -70,19 +104,19 @@ export default function Fixed() {
       )}
 
       <form className="card form" onSubmit={submit}>
-        <h2>Añadir fijo</h2>
+        <h2>{editing ? `Editar «${editing.name}»` : 'Añadir fijo'}</h2>
         <label className="field">
           <span>Nombre</span>
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Netflix" />
+          <input value={form.name} onChange={(e) => set({ name: e.target.value })} placeholder="Netflix" />
         </label>
         <div className="row">
           <label className="field">
             <span>Importe</span>
-            <input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="13,99" />
+            <input inputMode="decimal" value={form.amount} onChange={(e) => set({ amount: e.target.value })} placeholder="13,99" />
           </label>
           <label className="field">
             <span>Cada</span>
-            <select value={every} onChange={(e) => setEvery(e.target.value as Every)}>
+            <select value={form.every} onChange={(e) => set({ every: e.target.value as Every })}>
               <option value="week">Semana</option>
               <option value="month">Mes</option>
               <option value="year">Año</option>
@@ -91,12 +125,22 @@ export default function Fixed() {
         </div>
         <label className="field">
           <span>Próximo cobro</span>
-          <input type="date" value={start} onChange={(e) => setStart(e.target.value)} />
+          <input type="date" value={form.start} onChange={(e) => set({ start: e.target.value })} />
         </label>
+        {overdue > 0 && form.start < today() && (
+          <p className="warn small" role="status">
+            Esa fecha ya pasó: al guardar se registrarán <b>{overdue}</b> {overdue === 1 ? 'cobro anterior' : 'cobros anteriores'}
+            {value !== null && <> ({money(overdue * value)} en total)</>}. Si solo quieres los próximos, elige una fecha futura.
+          </p>
+        )}
+        {editing && <p className="muted small">Los cambios se aplican a los próximos cobros; los ya registrados no se modifican.</p>}
         <label className="check">
-          <input type="checkbox" checked={income} onChange={(e) => setIncome(e.target.checked)} /> Es un ingreso
+          <input type="checkbox" checked={form.income} onChange={(e) => set({ income: e.target.checked })} /> Es un ingreso
         </label>
-        <button className="primary" disabled={!name.trim() || value === null}>Añadir</button>
+        <div className="row">
+          {editing && <button type="button" onClick={cancel}>Cancelar</button>}
+          <button className="primary" disabled={!form.name.trim() || value === null || !form.start}>{editing ? 'Guardar' : 'Añadir'}</button>
+        </div>
       </form>
     </>
   )

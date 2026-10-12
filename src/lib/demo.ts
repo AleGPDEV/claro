@@ -41,7 +41,7 @@ export function demoData(state: State): State {
     ...state,
     txs,
     recurring: [
-      fixed('Nómina', 2100, 'ingreso', 0, 'income'),
+      fixed('Sueldo', 2100, 'ingreso', 0, 'income'),
       fixed('Alquiler', 650, 'hogar', 1),
       fixed('Internet', 38, 'hogar', 4),
       fixed('Gimnasio', 35, 'salud', 2),

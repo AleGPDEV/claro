@@ -84,7 +84,8 @@ export function byCategory(txs: Tx[], from: string, to: string) {
   for (const t of txs)
     if (t.kind === 'expense' && t.date >= from && t.date <= to)
       totals.set(t.category, (totals.get(t.category) ?? 0) + t.amount)
-  return [...totals].map(([id, total]) => ({ id, total })).sort((a, b) => b.total - a.total)
+  // Una categoría con más devoluciones que gastos no es un gasto del periodo.
+  return [...totals].map(([id, total]) => ({ id, total })).filter((c) => c.total > 0).sort((a, b) => b.total - a.total)
 }
 
 export function dailyTotals(txs: Tx[], from: string, to: string) {

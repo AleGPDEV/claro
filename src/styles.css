@@ -534,8 +534,8 @@ button.danger {
 
 .icon-btn {
   flex: none;
-  width: 32px;
-  height: 32px;
+  width: 44px;
+  height: 44px;
   border: 0;
   border-radius: 8px;
   background: none;
@@ -579,8 +579,8 @@ button.danger {
 }
 
 .pager button {
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   border: 0;
   border-radius: 10px;
   background: none;
@@ -710,12 +710,28 @@ button.danger {
 .l3 { background: color-mix(in srgb, var(--accent) 76%, var(--surface-2)) !important; }
 .l4 { background: var(--accent) !important; }
 
+.heat i {
+  cursor: pointer;
+}
+
+.heat .act {
+  outline: 2px solid var(--text);
+  outline-offset: 1px;
+}
+
+.heat-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+}
+
 .heat-legend {
+  flex: none;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
   gap: 3px;
-  margin-top: 10px;
 }
 
 .heat-legend i {
@@ -724,23 +740,28 @@ button.danger {
 
 /* Hoja de edición */
 
-.overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 10;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  background: rgb(0 0 0 / 0.45);
-}
-
 .sheet {
+  position: fixed;
+  inset: auto 0 0;
   width: 100%;
   max-width: 540px;
-  padding: 20px 16px calc(20px + env(safe-area-inset-bottom));
+  max-height: 92dvh;
+  margin: 0 auto;
+  padding: 0;
+  border: 0;
+  overflow: auto;
+  color: var(--text);
   background: var(--surface);
   border-radius: 20px 20px 0 0;
   animation: rise 0.18s ease-out;
+}
+
+.sheet::backdrop {
+  background: rgb(0 0 0 / 0.45);
+}
+
+.sheet .form {
+  padding: 20px 16px calc(20px + env(safe-area-inset-bottom));
 }
 
 @keyframes rise {
@@ -777,4 +798,96 @@ button.danger {
 
 @media (prefers-reduced-motion: reduce) {
   .sheet { animation: none; }
+}
+
+/* Avisos */
+
+.warn {
+  color: var(--text);
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bad) 12%, var(--surface));
+}
+
+.notice {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 15px;
+}
+
+.notice button {
+  height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  font-weight: 600;
+}
+
+.notice button.primary {
+  border-color: transparent;
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(76px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: max-content;
+  max-width: calc(100% - 32px);
+  padding: 12px 16px;
+  font-size: 14px;
+  color: var(--bg);
+  background: var(--text);
+  border-radius: 12px;
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.25);
+}
+
+.toast .link {
+  color: inherit;
+  text-decoration: underline;
+  min-height: 24px;
+}
+
+/* Fila de un fijo: zona principal editable + botón de borrar */
+
+.tx-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+}
+
+.tx-amount.stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-size: 15px;
+}
+
+.tx-amount.stack small {
+  font-size: 12px;
+}
+
+.tx .icon-btn {
+  margin-right: -10px;
+}
+
+.tx.editing {
+  width: auto;
+  margin: 0 -8px;
+  padding: 8px;
+  border-radius: 12px;
+  background: var(--surface-2);
 }

@@ -1,10 +1,12 @@
-import { detectCategory, normalize } from './categories'
+import { detectCategory, isCategory, normalize, tokenize, wordForms } from './categories'
 import { addDays, today } from './dates'
 import type { Kind } from './types'
 
 export interface Parsed {
+  /** Siempre positivo; `refund` indica que resta. */
   amount: number | null
   kind: Kind
+  refund: boolean
   note: string
   category: string
   date: string
@@ -26,13 +28,74 @@ export function parseAmount(raw: string): number | null {
     s = thousands ? parts.join('') : parts.join('.')
   }
   const n = Number(s)
-  return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : null
+  return Number.isFinite(n) && n > 0 && n < 1e12 ? Math.round(n * 100) / 100 : null
 }
 
-const NUMBER = /\d+(?:[.,]\d+)*/g
-const DAYS: Record<string, number> = { hoy: 0, ayer: -1, anteayer: -2 }
+// Un número suelto: no pegado a letras ("x2", "covid19") ni a otro número.
+const NUMBER = /(?<![\p{L}\p{N}.,])\d+(?:[.,]\d+)*(?![\p{L}\p{N}])/gu
+const DAYS: Record<string, number> = { hoy: 0, ayer: -1, anteayer: -2, antier: -2 }
+const REFUND_WORDS = ['devolucion', 'reembolso', 'reintegro']
 
-/** Interpreta una entrada libre como "café 3,50", "ayer 20 cena" o "+1500 nómina". */
+interface Candidate {
+  start: number
+  end: number
+  raw: string
+  /** Lleva símbolo de moneda. */
+  marked: boolean
+  negative: boolean
+}
+
+function candidates(text: string): Candidate[] {
+  const found: Candidate[] = []
+  for (const m of text.matchAll(NUMBER)) {
+    let start = m.index
+    let end = start + m[0].length
+    let marked = false
+    let negative = false
+    if (/[$€]/.test(text[start - 1] ?? '')) {
+      marked = true
+      start--
+    }
+    if (text[start - 1] === '-' && (start === 1 || /\s/.test(text[start - 2]))) {
+      negative = true
+      start--
+    }
+    const after = text.slice(end).match(/^\s?[$€]/)
+    if (after) {
+      marked = true
+      end += after[0].length
+    }
+    found.push({ start, end, raw: m[0], marked, negative })
+  }
+  // "café 3 50" → 3,50: un entero corto seguido de exactamente dos cifras son los céntimos.
+  // Con cuatro cifras o más ("concierto 2026 80") son dos números distintos.
+  for (let i = 0; i < found.length - 1; i++) {
+    const a = found[i]
+    const b = found[i + 1]
+    if (text.slice(a.end, b.start) === ' ' && /^\d{1,3}$/.test(a.raw) && /^\d{2}$/.test(b.raw) && !b.negative) {
+      found.splice(i, 2, { ...a, end: b.end, raw: `${a.raw}.${b.raw}`, marked: a.marked || b.marked })
+      break
+    }
+  }
+  return found
+}
+
+/**
+ * Elige cuál de los números es el importe. Por orden: el que lleva símbolo de moneda,
+ * el único con céntimos, el del final, el del principio y, si no, el último.
+ */
+function pickAmount(text: string, found: Candidate[]) {
+  const cents = found.filter((c) => /[.,]\d{2}$/.test(c.raw))
+  return (
+    found.find((c) => c.marked) ??
+    (cents.length === 1 ? cents[0] : undefined) ??
+    found.find((c) => c.end === text.length) ??
+    found.find((c) => c.start === 0) ??
+    found[found.length - 1]
+  )
+}
+
+/** Interpreta una entrada libre como "café 3,50", "ayer 20 cena", "+1500 sueldo" o "-20 cine". */
 export function parseEntry(text: string, learned: Record<string, string>): Parsed {
   let rest = text.trim()
   let kind: Kind = 'expense'
@@ -42,24 +105,29 @@ export function parseEntry(text: string, learned: Record<string, string>): Parse
   }
 
   let date = today()
-  rest = rest.replace(/(^|\s)(hoy|ayer|anteayer)(?=\s|$)/i, (_, pre: string, word: string) => {
-    date = addDays(today(), DAYS[word.toLowerCase()])
-    return pre
-  })
+  rest = rest
+    .replace(/(^|\s)(hoy|ayer|anteayer|antier)(?=\s|$)/i, (_, pre: string, word: string) => {
+      date = addDays(today(), DAYS[word.toLowerCase()])
+      return pre
+    })
+    .replace(/\s+/g, ' ')
+    .trim()
 
-  // Si empieza por un número, ese es el importe; si no, el último número del texto.
-  const numbers = [...rest.matchAll(NUMBER)]
-  const leading = numbers[0] && rest.trimStart().startsWith(numbers[0][0])
-  const match = leading ? numbers[0] : numbers[numbers.length - 1]
-  const amount = match ? parseAmount(match[0]) : null
-  if (match) rest = rest.slice(0, match.index) + rest.slice(match.index! + match[0].length)
+  const chosen = pickAmount(rest, candidates(rest))
+  const amount = chosen ? parseAmount(chosen.raw) : null
+  if (chosen) rest = `${rest.slice(0, chosen.start)} ${rest.slice(chosen.end)}`
 
   let note = rest.replace(/[€$]/g, '').replace(/\s+/g, ' ').trim()
   note = note.charAt(0).toUpperCase() + note.slice(1)
 
-  const detected = learned[normalize(note)] ?? detectCategory(note)
+  const key = normalize(note)
+  const remembered = Object.hasOwn(learned, key) && isCategory(learned[key]) ? learned[key] : null
+  const detected = remembered ?? detectCategory(note)
   if (detected === 'ingreso') kind = 'income'
   const category = kind === 'income' ? 'ingreso' : (detected ?? 'otros')
 
-  return { amount, kind, note, category, date }
+  const refundWord = tokenize(note).some((t) => wordForms(t).some((f) => REFUND_WORDS.includes(f)))
+  const refund = kind === 'expense' && (refundWord || chosen?.negative === true)
+
+  return { amount, kind, refund, note, category, date }
 }

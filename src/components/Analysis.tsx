@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { cat } from '../lib/categories'
-import { addDays, diffDays, parseDate, today } from '../lib/dates'
+import { addDays, diffDays, minDate, parseDate, today } from '../lib/dates'
 import { buckets, byCategory, compare, dailyTotals, range, shift, sum, type Period, type PeriodKind } from '../lib/stats'
 import { useMoney, useStore } from '../lib/store'
 import type { Tx } from '../lib/types'
@@ -13,31 +13,63 @@ const KINDS: { id: PeriodKind; label: string }[] = [
   { id: 'year', label: 'Año' },
 ]
 
+const ARROWS: Record<string, number> = { ArrowUp: -1, ArrowDown: 1, ArrowLeft: -7, ArrowRight: 7 }
+
 function Heatmap({ txs, year }: { txs: Tx[]; year: number }) {
   const money = useMoney()
+  const [active, setActive] = useState<string | null>(null)
   const from = `${year}-01-01`
   const to = `${year}-12-31`
+  const t = today()
   const totals = dailyTotals(txs, from, to)
-  const sorted = [...totals.values()].sort((a, b) => a - b)
+  const sorted = [...totals.values()].filter((v) => v > 0).sort((a, b) => a - b)
   const q = (p: number) => sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))] ?? 0
   const cuts = [q(0.25), q(0.5), q(0.75)]
-  const t = today()
   const offset = (parseDate(from).getDay() + 6) % 7
   const days = Array.from({ length: diffDays(from, to) + 1 }, (_, i) => addDays(from, i))
+  const start = minDate(to, t) < from ? from : minDate(to, t)
+
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    const step = ARROWS[e.key]
+    if (!step) return
+    e.preventDefault()
+    const next = active ? addDays(active, step) : start
+    if (next >= from && next <= to) setActive(next)
+  }
 
   return (
     <>
-      <div className="heat" role="img" aria-label={`Gasto diario de ${year}`}>
+      <div
+        className="heat"
+        tabIndex={0}
+        role="group"
+        aria-label={`Gasto de cada día de ${year}. Usa las flechas para recorrer los días.`}
+        onKeyDown={onKeyDown}
+        onFocus={() => active ?? setActive(start)}
+      >
         {Array.from({ length: offset }, (_, i) => <i key={i} className="pad" />)}
         {days.map((date) => {
           const v = totals.get(date) ?? 0
-          const level = v === 0 ? 0 : 1 + cuts.filter((c) => v > c).length
-          const label = parseDate(date).toLocaleDateString('es', { day: 'numeric', month: 'short' })
-          return <i key={date} className={date > t ? 'future' : `l${level}`} title={date > t ? label : `${label} · ${money(v)}`} />
+          const level = v <= 0 ? 0 : 1 + cuts.filter((c) => v > c).length
+          return (
+            <i
+              key={date}
+              className={`${date > t ? 'future' : `l${level}`} ${date === active ? 'act' : ''}`}
+              onClick={() => setActive(date)}
+              onMouseEnter={() => setActive(date)}
+            />
+          )
         })}
       </div>
-      <div className="heat-legend muted small">
-        Menos <i className="l0" /><i className="l1" /><i className="l2" /><i className="l3" /><i className="l4" /> Más
+      <div className="heat-foot muted small">
+        <span aria-live="polite">
+          {active
+            ? `${parseDate(active).toLocaleDateString('es', { weekday: 'short', day: 'numeric', month: 'short' })} · ${active > t ? 'aún no ha llegado' : money(totals.get(active) ?? 0)}`
+            : 'Toca un día para ver cuánto gastaste.'}
+        </span>
+        <span className="heat-legend" aria-hidden="true">
+          Menos <i className="l0" /><i className="l1" /><i className="l2" /><i className="l3" /><i className="l4" /> Más
+        </span>
       </div>
     </>
   )
@@ -52,6 +84,7 @@ export default function Analysis({ period, setPeriod, onEdit }: { period: Period
   const r = range(period)
   const { total, delta, days } = compare(period, txs)
   const income = sum(txs, r.from, r.to, 'income')
+  const balance = income - total
   const bars = buckets(period, txs)
   const max = Math.max(...bars.map((b) => b.value), 1)
   const cats = byCategory(txs, r.from, r.to)
@@ -98,8 +131,10 @@ export default function Analysis({ period, setPeriod, onEdit }: { period: Period
           </div>
           <div>
             <span className="label">Balance</span>
-            <strong className={income - total < 0 ? 'over' : ''}>{money(income - total, true)}</strong>
-            <small className="muted">{income - total > 0 ? `ahorras el ${Math.round(((income - total) / income) * 100)}%` : 'gastas más de lo que entra'}</small>
+            <strong className={balance < 0 ? 'over' : ''}>{money(balance, true)}</strong>
+            <small className="muted">
+              {balance > 0 ? `ahorras el ${Math.round((balance / income) * 100)}%` : balance === 0 ? 'gastas justo lo que entra' : 'gastas más de lo que entra'}
+            </small>
           </div>
         </section>
       )}
@@ -120,7 +155,7 @@ export default function Analysis({ period, setPeriod, onEdit }: { period: Period
               onClick={() => setSelected(selected === i ? null : i)}
             >
               <span className="track">
-                <i style={{ height: `${(b.value / max) * 100}%` }} className={b.value === 0 ? 'zero' : ''} />
+                <i style={{ height: `${(Math.max(b.value, 0) / max) * 100}%` }} className={b.value <= 0 ? 'zero' : ''} />
               </span>
               <small>{b.tick}</small>
             </button>
@@ -131,7 +166,7 @@ export default function Analysis({ period, setPeriod, onEdit }: { period: Period
       {period.kind === 'year' && (
         <section className="card">
           <h2>Cada día del año</h2>
-          <Heatmap txs={txs} year={Number(r.from.slice(0, 4))} />
+          <Heatmap key={r.from} txs={txs} year={Number(r.from.slice(0, 4))} />
         </section>
       )}
 
@@ -145,7 +180,7 @@ export default function Analysis({ period, setPeriod, onEdit }: { period: Period
                 <div>
                   <p>
                     <span>{cat(c.id).name}</span>
-                    <span>{money(c.total, true)} <small className="muted">{Math.round((c.total / total) * 100)}%</small></span>
+                    <span>{money(c.total, true)} {total > 0 && <small className="muted">{Math.round((c.total / total) * 100)}%</small>}</span>
                   </p>
                   <div className="catbar"><i style={{ width: `${(c.total / cats[0].total) * 100}%` }} /></div>
                 </div>

@@ -13,7 +13,7 @@ export default function Onboarding() {
       className="onboarding"
       onSubmit={(e) => {
         e.preventDefault()
-        actions.setSettings({ currency, budget: parseAmount(budget) ?? 0, income: parseAmount(income) ?? 0, onboarded: true })
+        actions.finishOnboarding({ currency, budget: parseAmount(budget) ?? 0, income: parseAmount(income) ?? 0 })
       }}
     >
       <h1>Claro</h1>

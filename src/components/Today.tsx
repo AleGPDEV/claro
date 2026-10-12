@@ -1,5 +1,6 @@
 import { cat } from '../lib/categories'
-import { addDays, daysInMonth, parseDate, today } from '../lib/dates'
+import { downloadBackup } from '../lib/backup'
+import { addDays, dayLabel, daysInMonth, parseDate, today } from '../lib/dates'
 import { demoData } from '../lib/demo'
 import { byCategory, compare, dailyTotals, hourlyRate, sum, workTime, type PeriodKind } from '../lib/stats'
 import { actions, getState, monthlyCost, useMoney, useStore, type Money } from '../lib/store'
@@ -22,7 +23,7 @@ function insights(state: State, money: Money) {
   const from = t.slice(0, 8) + '01'
   const month = sum(txs, from, t)
   const out: { icon: string; text: React.ReactNode }[] = []
-  if (month === 0) return out
+  if (month <= 0) return out
 
   const variable = txs.filter((x) => !x.recurringId)
   const fixed = recurring.filter((r) => r.kind === 'expense').reduce((s, r) => s + monthlyCost(r), 0)
@@ -55,7 +56,7 @@ function insights(state: State, money: Money) {
   const reference = settings.budget || settings.income
   if (reference > 0) {
     const limit = reference * 0.005
-    const ants = variable.filter((x) => x.kind === 'expense' && x.date >= from && x.date <= t && x.amount <= limit)
+    const ants = variable.filter((x) => x.kind === 'expense' && x.date >= from && x.date <= t && x.amount > 0 && x.amount <= limit)
     const total = ants.reduce((s, x) => s + x.amount, 0)
     if (ants.length >= 3) {
       out.push({
@@ -105,8 +106,12 @@ export default function Today({ openPeriod, onEdit }: { openPeriod: (k: PeriodKi
   const daysLeft = dim - d.getDate() + 1
   const available = (flexible - (varMonth - varToday)) / daysLeft - varToday
 
+  // Los fijos cobrados hoy se muestran aparte: no son un gasto del día comparable con la media.
+  const fixedToday = spentToday - varToday
+
   const todays = txs.filter((x) => x.date === t)
   const tips = insights(state, money)
+  const backupDue = txs.length > 0 && (settings.backupReminder === '' || t >= settings.backupReminder)
 
   return (
     <>
@@ -134,7 +139,7 @@ export default function Today({ openPeriod, onEdit }: { openPeriod: (k: PeriodKi
         ) : (
           <>
             <span className="label">Gastado hoy</span>
-            <strong className="big">{money(spentToday)}</strong>
+            <strong className="big">{money(varToday)}</strong>
             <span className="muted small">Define un presupuesto en Ajustes para saber cuánto puedes gastar cada día.</span>
           </>
         )}
@@ -143,8 +148,8 @@ export default function Today({ openPeriod, onEdit }: { openPeriod: (k: PeriodKi
       <section className="tiles">
         <button onClick={() => openPeriod('week')}>
           <span className="label">Hoy</span>
-          <strong>{money(spentToday, true)}</strong>
-          <small className="muted">media {money(avg30, true)}</small>
+          <strong>{money(varToday, true)}</strong>
+          <small className="muted">{fixedToday > 0 ? `+ ${money(fixedToday, true)} en fijos` : `media ${money(avg30, true)}`}</small>
         </button>
         <button onClick={() => openPeriod('month')}>
           <span className="label">Mes</span>
@@ -157,6 +162,19 @@ export default function Today({ openPeriod, onEdit }: { openPeriod: (k: PeriodKi
           <small><Delta value={year.delta} /></small>
         </button>
       </section>
+
+      {backupDue && (
+        <section className="card notice">
+          <p>
+            <b>Haz una copia de tus datos.</b> Solo existen en este dispositivo
+            {settings.lastBackup ? <>; la última copia es del {dayLabel(settings.lastBackup).toLowerCase()}.</> : ' y todavía no tienes ninguna copia.'}
+          </p>
+          <div className="row">
+            <button onClick={() => actions.snoozeBackup()}>Más tarde</button>
+            <button className="primary" onClick={downloadBackup}>Descargar copia</button>
+          </div>
+        </section>
+      )}
 
       {tips.length > 0 && (
         <section className="card insights">

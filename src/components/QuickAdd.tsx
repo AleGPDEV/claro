@@ -10,12 +10,14 @@ export default function QuickAdd() {
   const money = useMoney()
   const input = useRef<HTMLInputElement>(null)
   const [text, setText] = useState('')
-  const [category, setCategory] = useState<string | null>(null)
+  // La categoría elegida a mano vale solo para la nota con la que se eligió.
+  const [picked, setPicked] = useState<{ note: string; category: string } | null>(null)
   const [date, setDate] = useState<string | null>(null)
   const [added, setAdded] = useState<{ id: string; label: string } | null>(null)
 
   const parsed = useMemo(() => parseEntry(text, learned), [text, learned])
-  const entry = { ...parsed, category: parsed.kind === 'income' ? 'ingreso' : (category ?? parsed.category), date: date ?? parsed.date }
+  const category = parsed.kind === 'income' ? 'ingreso' : picked?.note === parsed.note ? picked.category : parsed.category
+  const entry = { ...parsed, category, date: date ?? parsed.date }
   const rate = hourlyRate(settings)
 
   // "/" enfoca la entrada rápida desde cualquier punto de la pantalla.
@@ -39,10 +41,11 @@ export default function QuickAdd() {
   const submit = (e: React.FormEvent) => {
     e.preventDefault()
     if (entry.amount === null) return
-    const id = actions.addTx({ kind: entry.kind, amount: entry.amount, category: entry.category, note: entry.note, date: entry.date })
+    const amount = entry.refund ? -entry.amount : entry.amount
+    const id = actions.addTx({ kind: entry.kind, amount, category: entry.category, note: entry.note, date: entry.date })
     setAdded({ id, label: `${entry.note || cat(entry.category).name} · ${money(entry.amount)}` })
     setText('')
-    setCategory(null)
+    setPicked(null)
     setDate(null)
   }
 
@@ -69,7 +72,7 @@ export default function QuickAdd() {
             {entry.kind === 'income' ? (
               <span className="chip">💰 Ingreso</span>
             ) : (
-              <select className="chip" value={entry.category} onChange={(e) => setCategory(e.target.value)} aria-label="Categoría">
+              <select className="chip" value={entry.category} onChange={(e) => setPicked({ note: parsed.note, category: e.target.value })} aria-label="Categoría">
                 {EXPENSE_CATEGORIES.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.icon} {c.name}
@@ -78,24 +81,26 @@ export default function QuickAdd() {
               </select>
             )}
             <input className="chip" type="date" value={entry.date} max={today()} onChange={(e) => setDate(e.target.value || null)} aria-label="Fecha" />
-            <strong className="chip-amount">{entry.kind === 'income' ? '+' : ''}{money(entry.amount)}</strong>
+            <strong className="chip-amount">{entry.kind === 'income' || entry.refund ? '+' : ''}{money(entry.amount)}</strong>
           </div>
-          {entry.kind === 'expense' && (
+          {entry.refund ? (
+            <p className="hint">Devolución: se resta de lo gastado en <b>{cat(entry.category).name}</b>.</p>
+          ) : entry.kind === 'expense' ? (
             <p className="hint">
               Cada día serían <b>{money(entry.amount * 365, true)}</b> al año
               {rate > 0 && <> · te cuesta <b>{workTime(entry.amount, rate)}</b> de trabajo</>}
             </p>
-          )}
+          ) : null}
         </>
       ) : added ? (
-        <p className="hint">
+        <p className="hint" role="status">
           ✓ {added.label}{' '}
           <button type="button" className="link" onClick={() => { actions.removeTx(added.id); setAdded(null) }}>
             Deshacer
           </button>
         </p>
       ) : (
-        <p className="hint">Escribe qué y cuánto. Prueba «ayer 20 cena» o «+1500 nómina».</p>
+        <p className="hint">Escribe qué y cuánto. También «ayer 20 cena», «+1500 sueldo» o «-30 devolución».</p>
       )}
     </form>
   )

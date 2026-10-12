@@ -4,6 +4,7 @@ export type Every = 'week' | 'month' | 'year'
 export interface Tx {
   id: string
   kind: Kind
+  /** En gastos puede ser negativo: una devolución resta de su categoría. */
   amount: number
   category: string
   note: string
@@ -31,6 +32,10 @@ export interface Settings {
   weeklyHours: number
   theme: 'auto' | 'light' | 'dark'
   onboarded: boolean
+  /** Fecha de la última copia descargada, o '' si nunca se hizo. */
+  lastBackup: string
+  /** A partir de qué día se vuelve a recordar hacer una copia. */
+  backupReminder: string
 }
 
 export interface State {

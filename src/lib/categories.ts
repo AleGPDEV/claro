@@ -2,37 +2,59 @@ export interface Category {
   id: string
   name: string
   icon: string
+  /** Palabras o frases (sin acentos, en singular) que delatan la categoría. */
   words: string[]
 }
 
 export const CATEGORIES: Category[] = [
-  { id: 'comida', name: 'Comida', icon: '🍽️', words: ['comida', 'almuerzo', 'cena', 'desayuno', 'restaurante', 'menu', 'pizza', 'burger', 'hamburguesa', 'sushi', 'tacos', 'bar', 'cerveza', 'cana', 'tapas', 'delivery', 'glovo', 'rappi', 'ubereats', 'cafe', 'cafeteria', 'starbucks', 'helado', 'merienda', 'bocadillo', 'kebab'] },
-  { id: 'super', name: 'Supermercado', icon: '🛒', words: ['super', 'supermercado', 'mercado', 'mercadona', 'carrefour', 'lidl', 'aldi', 'dia', 'walmart', 'compra', 'fruta', 'verdura', 'panaderia', 'pan', 'carniceria', 'fruteria'] },
-  { id: 'transporte', name: 'Transporte', icon: '🚌', words: ['uber', 'taxi', 'cabify', 'didi', 'bus', 'metro', 'tren', 'gasolina', 'gasolinera', 'diesel', 'parking', 'peaje', 'bici', 'transporte', 'renfe', 'abono', 'coche', 'taller'] },
-  { id: 'hogar', name: 'Hogar', icon: '🏠', words: ['alquiler', 'renta', 'hipoteca', 'luz', 'agua', 'gas', 'internet', 'wifi', 'fibra', 'comunidad', 'ikea', 'muebles', 'limpieza', 'electricidad', 'movil', 'telefono'] },
-  { id: 'ocio', name: 'Ocio', icon: '🎬', words: ['cine', 'concierto', 'teatro', 'fiesta', 'copas', 'discoteca', 'juego', 'videojuego', 'steam', 'entrada', 'entradas', 'museo', 'libro', 'ocio'] },
-  { id: 'salud', name: 'Salud', icon: '💊', words: ['farmacia', 'medico', 'dentista', 'gimnasio', 'gym', 'fisio', 'psicologo', 'optica', 'seguro', 'medicina', 'salud'] },
-  { id: 'compras', name: 'Compras', icon: '🛍️', words: ['ropa', 'zapatos', 'zapatillas', 'amazon', 'zara', 'compras', 'regalo', 'electronica', 'shein', 'aliexpress', 'peluqueria', 'barberia'] },
-  { id: 'suscripciones', name: 'Suscripciones', icon: '🔁', words: ['netflix', 'spotify', 'hbo', 'disney', 'prime', 'icloud', 'youtube', 'suscripcion', 'chatgpt', 'claude', 'dropbox', 'max'] },
-  { id: 'educacion', name: 'Educación', icon: '📚', words: ['curso', 'matricula', 'universidad', 'colegio', 'academia', 'clase', 'clases', 'udemy'] },
-  { id: 'viajes', name: 'Viajes', icon: '✈️', words: ['vuelo', 'hotel', 'airbnb', 'booking', 'viaje', 'hostal', 'ryanair', 'maleta'] },
+  { id: 'comida', name: 'Comida', icon: '🍽️', words: ['uber eats', 'ubereats', 'pedidos ya', 'pedidosya', 'rappi', 'glovo', 'delivery', 'comida', 'almuerzo', 'cena', 'desayuno', 'merienda', 'restaurante', 'resto', 'menu', 'pizza', 'pizzeria', 'burger', 'hamburguesa', 'sushi', 'taco', 'empanada', 'chivito', 'asado', 'parrilla', 'milanesa', 'pancho', 'bar', 'cerveza', 'birra', 'cana', 'tapas', 'trago', 'cafe', 'cafeteria', 'starbucks', 'helado', 'heladeria', 'bocadillo', 'sandwich', 'kebab', 'mcdonalds', 'kiosco'] },
+  { id: 'super', name: 'Supermercado', icon: '🛒', words: ['tienda inglesa', 'super', 'supermercado', 'mercado', 'feria', 'almacen', 'mercadona', 'carrefour', 'lidl', 'aldi', 'walmart', 'disco', 'devoto', 'tata', 'geant', 'coto', 'jumbo', 'oxxo', 'compra', 'fruta', 'verdura', 'verduleria', 'fruteria', 'panaderia', 'pan', 'carniceria', 'yerba'] },
+  { id: 'transporte', name: 'Transporte', icon: '🚌', words: ['seguro auto', 'seguro del auto', 'seguro coche', 'seguro del coche', 'seguro moto', 'uber', 'taxi', 'cabify', 'didi', 'bolt', 'remis', 'bus', 'omnibus', 'colectivo', 'bondi', 'boleto', 'stm', 'metro', 'subte', 'tren', 'pasaje', 'nafta', 'gasolina', 'gasolinera', 'combustible', 'diesel', 'gasoil', 'ancap', 'parking', 'estacionamiento', 'cochera', 'peaje', 'patente', 'bici', 'transporte', 'renfe', 'abono', 'coche', 'auto', 'moto', 'taller', 'mecanico'] },
+  { id: 'hogar', name: 'Hogar', icon: '🏠', words: ['gastos comunes', 'alquiler', 'renta', 'hipoteca', 'expensas', 'contribucion', 'luz', 'ute', 'agua', 'ose', 'gas', 'internet', 'wifi', 'fibra', 'antel', 'movistar', 'comunidad', 'ikea', 'mueble', 'limpieza', 'electricidad', 'movil', 'celular', 'telefono', 'ferreteria'] },
+  { id: 'ocio', name: 'Ocio', icon: '🎬', words: ['cine', 'concierto', 'recital', 'teatro', 'fiesta', 'copas', 'boliche', 'discoteca', 'juego', 'videojuego', 'steam', 'playstation', 'entrada', 'museo', 'libro', 'ocio', 'futbol', 'cancha'] },
+  { id: 'salud', name: 'Salud', icon: '💊', words: ['sociedad medica', 'seguro medico', 'seguro salud', 'seguro de salud', 'farmacia', 'medico', 'dentista', 'odontologo', 'gimnasio', 'gym', 'fisio', 'psicologo', 'terapia', 'optica', 'medicina', 'remedio', 'mutualista', 'salud', 'analisis'] },
+  { id: 'compras', name: 'Compras', icon: '🛍️', words: ['mercado libre', 'mercadolibre', 'ropa', 'zapato', 'zapatilla', 'championes', 'remera', 'amazon', 'zara', 'compras', 'regalo', 'electronica', 'shein', 'aliexpress', 'temu', 'peluqueria', 'barberia'] },
+  { id: 'suscripciones', name: 'Suscripciones', icon: '🔁', words: ['google one', 'netflix', 'spotify', 'hbo', 'disney', 'prime', 'icloud', 'youtube', 'suscripcion', 'chatgpt', 'claude', 'dropbox'] },
+  { id: 'educacion', name: 'Educación', icon: '📚', words: ['curso', 'matricula', 'universidad', 'facultad', 'colegio', 'academia', 'clase', 'udemy'] },
+  { id: 'viajes', name: 'Viajes', icon: '✈️', words: ['vuelo', 'hotel', 'airbnb', 'booking', 'viaje', 'hostal', 'hostel', 'ryanair', 'maleta', 'pasaporte'] },
   { id: 'otros', name: 'Otros', icon: '•', words: [] },
-  { id: 'ingreso', name: 'Ingreso', icon: '💰', words: ['nomina', 'sueldo', 'salario', 'ingreso', 'paga', 'bizum', 'devolucion', 'freelance'] },
+  { id: 'ingreso', name: 'Ingreso', icon: '💰', words: ['sueldo', 'salario', 'nomina', 'ingreso', 'aguinaldo', 'quincena', 'honorarios', 'freelance'] },
 ]
 
 export const EXPENSE_CATEGORIES = CATEGORIES.filter((c) => c.id !== 'ingreso')
 
 const byId = new Map(CATEGORIES.map((c) => [c.id, c]))
 export const cat = (id: string) => byId.get(id) ?? byId.get('otros')!
+export const isCategory = (id: unknown): id is string => typeof id === 'string' && byId.has(id)
+
+const wordIndex = new Map<string, string>()
+const phrases: [phrase: string, id: string][] = []
+for (const c of CATEGORIES)
+  for (const w of c.words) {
+    if (w.includes(' ')) phrases.push([w, c.id])
+    else if (!wordIndex.has(w)) wordIndex.set(w, c.id)
+  }
 
 export const normalize = (s: string) =>
   s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim()
 
+export const tokenize = (s: string) => normalize(s).split(/[^a-z0-9]+/).filter(Boolean)
+
+/** La palabra tal cual y sus posibles singulares ("cafes" → "cafe", "buses" → "bus"). */
+export const wordForms = (t: string) => [t, t.replace(/s$/, ''), t.replace(/es$/, '')]
+
 /** Deduce la categoría a partir del texto; `null` si no hay ninguna pista. */
 export function detectCategory(text: string): string | null {
-  const tokens = normalize(text).split(/[^a-z0-9]+/).filter(Boolean)
-  for (const c of CATEGORIES) if (tokens.some((t) => c.words.includes(t))) return c.id
-  for (const c of CATEGORIES)
-    if (tokens.some((t) => c.words.some((w) => w.length >= 5 && t.startsWith(w)))) return c.id
+  const tokens = tokenize(text)
+  const padded = ` ${tokens.join(' ')} `
+  for (const [phrase, id] of phrases) if (padded.includes(` ${phrase} `)) return id
+  for (const t of tokens)
+    for (const form of wordForms(t)) {
+      const id = wordIndex.get(form)
+      if (id) return id
+    }
+  // Derivados de palabras largas: "restaurantito", "farmacias24".
+  for (const t of tokens)
+    for (const [word, id] of wordIndex) if (word.length >= 5 && t.startsWith(word)) return id
   return null
 }
