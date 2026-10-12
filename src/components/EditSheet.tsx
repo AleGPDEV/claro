@@ -5,9 +5,18 @@ import { parseAmount } from '../lib/parse'
 import { actions } from '../lib/store'
 import type { Tx } from '../lib/types'
 
+type Type = 'expense' | 'refund' | 'income'
+
 export default function EditSheet({ tx, onClose, onDelete }: { tx: Tx; onClose: () => void; onDelete: (tx: Tx) => void }) {
   const dialog = useRef<HTMLDialogElement>(null)
-  const initial = { amount: String(Math.abs(tx.amount)).replace('.', ','), note: tx.note, category: tx.category, date: tx.date, refund: tx.amount < 0 }
+  const initial = {
+    type: (tx.kind === 'income' ? 'income' : tx.amount < 0 ? 'refund' : 'expense') as Type,
+    amount: String(Math.abs(tx.amount)).replace('.', ','),
+    note: tx.note,
+    // Un ingreso no tiene categoría de gasto: si se convierte en gasto, empieza en Otros.
+    category: tx.kind === 'income' ? 'otros' : tx.category,
+    date: tx.date,
+  }
   const [form, setForm] = useState(initial)
   const set = (patch: Partial<typeof form>) => setForm((f) => ({ ...f, ...patch }))
   const value = parseAmount(form.amount)
@@ -43,28 +52,43 @@ export default function EditSheet({ tx, onClose, onDelete }: { tx: Tx; onClose: 
         onSubmit={(e) => {
           e.preventDefault()
           if (value === null || !form.date) return
-          const amount = tx.kind === 'expense' && form.refund ? -value : value
-          actions.updateTx({ ...tx, amount, note: form.note.trim(), category: form.category, date: form.date })
+          const income = form.type === 'income'
+          actions.updateTx({
+            ...tx,
+            kind: income ? 'income' : 'expense',
+            amount: form.type === 'refund' ? -value : value,
+            category: income ? 'ingreso' : form.category,
+            note: form.note.trim(),
+            date: form.date,
+          })
           close()
         }}
       >
-        <h2>{tx.kind === 'income' ? 'Ingreso' : 'Gasto'}</h2>
+        <h2>Editar movimiento</h2>
         <div className="row">
           <label className="field">
-            <span>Importe</span>
-            <input inputMode="decimal" value={form.amount} onChange={(e) => set({ amount: e.target.value })} />
+            <span>Tipo</span>
+            <select value={form.type} onChange={(e) => set({ type: e.target.value as Type })}>
+              <option value="expense">Gasto</option>
+              <option value="refund">Devolución</option>
+              <option value="income">Ingreso</option>
+            </select>
           </label>
           <label className="field">
-            <span>Fecha</span>
-            <input type="date" value={form.date} max={today()} onChange={(e) => set({ date: e.target.value })} />
+            <span>Monto</span>
+            <input inputMode="decimal" value={form.amount} onChange={(e) => set({ amount: e.target.value })} />
           </label>
         </div>
         <label className="field">
           <span>Nota</span>
           <input value={form.note} onChange={(e) => set({ note: e.target.value })} />
         </label>
-        {tx.kind === 'expense' && (
-          <>
+        <div className="row">
+          <label className="field">
+            <span>Fecha</span>
+            <input type="date" value={form.date} max={today()} onChange={(e) => set({ date: e.target.value })} />
+          </label>
+          {form.type !== 'income' && (
             <label className="field">
               <span>Categoría</span>
               <select value={form.category} onChange={(e) => set({ category: e.target.value })}>
@@ -75,11 +99,9 @@ export default function EditSheet({ tx, onClose, onDelete }: { tx: Tx; onClose: 
                 ))}
               </select>
             </label>
-            <label className="check">
-              <input type="checkbox" checked={form.refund} onChange={(e) => set({ refund: e.target.checked })} /> Es una devolución (resta del gasto)
-            </label>
-          </>
-        )}
+          )}
+        </div>
+        {form.type === 'refund' && <p className="muted small">Una devolución resta de lo gastado en su categoría.</p>}
         <div className="row">
           <button type="button" className="danger" onClick={() => { close(); onDelete(tx) }}>
             Eliminar

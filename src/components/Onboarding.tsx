@@ -17,7 +17,7 @@ export default function Onboarding() {
       }}
     >
       <h1>Claro</h1>
-      <p className="lead">Ten claro en qué se va tu dinero: hoy, este mes y este año.</p>
+      <p className="lead">Tené claro en qué se va tu plata: hoy, este mes y este año.</p>
 
       <label className="field">
         <span>Moneda</span>
@@ -29,7 +29,7 @@ export default function Onboarding() {
       </label>
       <label className="field">
         <span>Presupuesto mensual <em>opcional</em></span>
-        <input inputMode="decimal" placeholder="Para saber cuánto puedes gastar cada día" value={budget} onChange={(e) => setBudget(e.target.value)} />
+        <input inputMode="decimal" placeholder="Para saber cuánto podés gastar cada día" value={budget} onChange={(e) => setBudget(e.target.value)} />
       </label>
       <label className="field">
         <span>Ingreso mensual neto <em>opcional</em></span>

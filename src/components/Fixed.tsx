@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { cat, detectCategory } from '../lib/categories'
-import { dayLabel, today } from '../lib/dates'
+import { addMonths, dayLabel, today } from '../lib/dates'
 import { parseAmount } from '../lib/parse'
 import { actions, dueCount, monthlyCost, nextDue, useMoney, useStore } from '../lib/store'
 import type { Every, Recurring } from '../lib/types'
@@ -19,6 +19,9 @@ export default function Fixed() {
   const expenses = recurring.filter((r) => r.kind === 'expense')
   const monthly = expenses.reduce((s, r) => s + monthlyCost(r), 0)
   const value = parseAmount(form.amount)
+  // Más atrás no tiene sentido registrar cobros, y mantiene acotado el número de atrasados.
+  const earliest = addMonths(today(), -60)
+  const tooOld = form.start !== '' && form.start < earliest
 
   // Al editar, los cobros ya generados no cambian; solo cuenta si se mueve la fecha o la frecuencia.
   const rescheduled = !editing || form.start !== nextDue(editing) || form.every !== editing.every
@@ -36,7 +39,7 @@ export default function Fixed() {
   const submit = (e: React.FormEvent) => {
     e.preventDefault()
     const name = form.name.trim()
-    if (!name || value === null || !form.start) return
+    if (!name || value === null || !form.start || tooOld) return
     const kind = form.income ? 'income' : 'expense'
     const category = form.income ? 'ingreso' : (detectCategory(name) ?? 'suscripciones')
     if (editing) {
@@ -104,14 +107,14 @@ export default function Fixed() {
       )}
 
       <form className="card form" onSubmit={submit}>
-        <h2>{editing ? `Editar «${editing.name}»` : 'Añadir fijo'}</h2>
+        <h2>{editing ? `Editar «${editing.name}»` : 'Agregar fijo'}</h2>
         <label className="field">
           <span>Nombre</span>
           <input value={form.name} onChange={(e) => set({ name: e.target.value })} placeholder="Netflix" />
         </label>
         <div className="row">
           <label className="field">
-            <span>Importe</span>
+            <span>Monto</span>
             <input inputMode="decimal" value={form.amount} onChange={(e) => set({ amount: e.target.value })} placeholder="13,99" />
           </label>
           <label className="field">
@@ -125,12 +128,14 @@ export default function Fixed() {
         </div>
         <label className="field">
           <span>Próximo cobro</span>
-          <input type="date" value={form.start} onChange={(e) => set({ start: e.target.value })} />
+          <input type="date" value={form.start} min={earliest} onChange={(e) => set({ start: e.target.value })} />
         </label>
-        {overdue > 0 && form.start < today() && (
+        {tooOld ? (
+          <p className="warn small" role="status">La fecha no puede ser anterior a hace 5 años.</p>
+        ) : overdue > 0 && form.start < today() && (
           <p className="warn small" role="status">
             Esa fecha ya pasó: al guardar se registrarán <b>{overdue}</b> {overdue === 1 ? 'cobro anterior' : 'cobros anteriores'}
-            {value !== null && <> ({money(overdue * value)} en total)</>}. Si solo quieres los próximos, elige una fecha futura.
+            {value !== null && <> ({money(overdue * value)} en total)</>}. Si solo querés los próximos, elegí una fecha futura.
           </p>
         )}
         {editing && <p className="muted small">Los cambios se aplican a los próximos cobros; los ya registrados no se modifican.</p>}
@@ -139,7 +144,7 @@ export default function Fixed() {
         </label>
         <div className="row">
           {editing && <button type="button" onClick={cancel}>Cancelar</button>}
-          <button className="primary" disabled={!form.name.trim() || value === null || !form.start}>{editing ? 'Guardar' : 'Añadir'}</button>
+          <button className="primary" disabled={!form.name.trim() || value === null || !form.start || tooOld}>{editing ? 'Guardar' : 'Agregar'}</button>
         </div>
       </form>
     </>

@@ -43,7 +43,7 @@ function Heatmap({ txs, year }: { txs: Tx[]; year: number }) {
         className="heat"
         tabIndex={0}
         role="group"
-        aria-label={`Gasto de cada día de ${year}. Usa las flechas para recorrer los días.`}
+        aria-label={`Gasto de cada día de ${year}. Usá las flechas para recorrer los días.`}
         onKeyDown={onKeyDown}
         onFocus={() => active ?? setActive(start)}
       >
@@ -64,8 +64,8 @@ function Heatmap({ txs, year }: { txs: Tx[]; year: number }) {
       <div className="heat-foot muted small">
         <span aria-live="polite">
           {active
-            ? `${parseDate(active).toLocaleDateString('es', { weekday: 'short', day: 'numeric', month: 'short' })} · ${active > t ? 'aún no ha llegado' : money(totals.get(active) ?? 0)}`
-            : 'Toca un día para ver cuánto gastaste.'}
+            ? `${parseDate(active).toLocaleDateString('es', { weekday: 'short', day: 'numeric', month: 'short' })} · ${active > t ? 'todavía no llegó' : money(totals.get(active) ?? 0)}`
+            : 'Tocá un día para ver cuánto gastaste.'}
         </span>
         <span className="heat-legend" aria-hidden="true">
           Menos <i className="l0" /><i className="l1" /><i className="l2" /><i className="l3" /><i className="l4" /> Más
@@ -88,6 +88,8 @@ export default function Analysis({ period, setPeriod, onEdit }: { period: Period
   const bars = buckets(period, txs)
   const max = Math.max(...bars.map((b) => b.value), 1)
   const cats = byCategory(txs, r.from, r.to)
+  // Base del reparto: lo gastado en las categorías, sin restar devoluciones de otras.
+  const gross = cats.reduce((s, c) => s + c.total, 0)
   const isCurrent = today() >= r.from && today() <= r.to
   const focus = selected !== null ? bars[selected] : null
   const list = txs.filter((x) => x.date >= (focus?.from ?? r.from) && x.date <= (focus?.to ?? r.to))
@@ -133,7 +135,7 @@ export default function Analysis({ period, setPeriod, onEdit }: { period: Period
             <span className="label">Balance</span>
             <strong className={balance < 0 ? 'over' : ''}>{money(balance, true)}</strong>
             <small className="muted">
-              {balance > 0 ? `ahorras el ${Math.round((balance / income) * 100)}%` : balance === 0 ? 'gastas justo lo que entra' : 'gastas más de lo que entra'}
+              {balance > 0 ? `ahorrás el ${Math.round((balance / income) * 100)}%` : balance === 0 ? 'gastás justo lo que entra' : 'gastás más de lo que entra'}
             </small>
           </div>
         </section>
@@ -180,7 +182,7 @@ export default function Analysis({ period, setPeriod, onEdit }: { period: Period
                 <div>
                   <p>
                     <span>{cat(c.id).name}</span>
-                    <span>{money(c.total, true)} {total > 0 && <small className="muted">{Math.round((c.total / total) * 100)}%</small>}</span>
+                    <span>{money(c.total, true)} <small className="muted">{Math.round((c.total / gross) * 100)}%</small></span>
                   </p>
                   <div className="catbar"><i style={{ width: `${(c.total / cats[0].total) * 100}%` }} /></div>
                 </div>

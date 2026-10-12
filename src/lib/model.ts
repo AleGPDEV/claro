@@ -1,6 +1,7 @@
 import { isCategory } from './categories'
 import { addDays, addMonths, iso, parseDate } from './dates'
 import { CURRENCIES } from './locale'
+import { MAX_AMOUNT } from './parse'
 import type { Every, Recurring, Settings, State, Tx } from './types'
 
 export const defaults = (currency: string): State => ({
@@ -12,7 +13,7 @@ export const defaults = (currency: string): State => ({
   },
 })
 
-const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 && v < 1e12 ? v : 0)
+const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 && v < MAX_AMOUNT ? v : 0)
 const str = (v: unknown) => (typeof v === 'string' ? v : '')
 
 /** Una fecha YYYY-MM-DD que existe en el calendario (descarta 2026-13-45). */
@@ -42,7 +43,7 @@ export function sanitize(raw: unknown, fallbackCurrency: string): State {
   for (const t of Array.isArray(r.txs) ? r.txs : []) {
     if (!t || typeof t !== 'object' || !isDate(t.date)) continue
     const k = kind(t.kind)
-    const amount = typeof t.amount === 'number' && Number.isFinite(t.amount) && Math.abs(t.amount) < 1e12 ? t.amount : 0
+    const amount = typeof t.amount === 'number' && Number.isFinite(t.amount) && Math.abs(t.amount) < MAX_AMOUNT ? t.amount : 0
     if (amount === 0 || (k === 'income' && amount < 0)) continue
     txs.push({
       id: txId(t.id), kind: k, amount, category: category(t.category, k), note: str(t.note), date: t.date,
@@ -88,9 +89,12 @@ export const nextDue = (r: Pick<Recurring, 'start' | 'every' | 'done'>) => occur
 export const monthlyCost = (r: Recurring) =>
   r.every === 'week' ? (r.amount * 52) / 12 : r.every === 'year' ? r.amount / 12 : r.amount
 
-const MAX_CATCH_UP = 600
+/** Máximo de cobros atrasados que se registran por fijo; los anteriores se saltan. */
+export const MAX_CATCH_UP = 600
+// Fechas absurdamente antiguas: se deja de avanzar en vez de bloquear la app.
+const MAX_SKIP = 200_000
 
-/** Cuántos cobros vencen entre `start` y `today`, ambos incluidos. */
+/** Cuántos cobros se registrarían entre `start` y `today`, ambos incluidos. */
 export function dueCount(start: string, every: Every, today: string) {
   let n = 0
   while (n < MAX_CATCH_UP && occurrence(start, every, n) <= today) n++
@@ -109,6 +113,8 @@ export function materialize(s: State, today: string): State {
       })
       cur = { ...cur, done: cur.done + 1 }
     }
+    // Lo que siga vencido tras el tope se salta: si no, se generaría en la siguiente pasada.
+    for (let i = 0; i < MAX_SKIP && nextDue(cur) <= today; i++) cur = { ...cur, done: cur.done + 1 }
     return cur
   })
   return txs.length ? { ...s, recurring, txs: [...s.txs, ...txs] } : s

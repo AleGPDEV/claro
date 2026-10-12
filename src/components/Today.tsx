@@ -34,7 +34,7 @@ function insights(state: State, money: Money) {
       icon: '🔮',
       text: (
         <>
-          A este ritmo cerrarás el mes en <b>{money(pace, true)}</b>
+          A este ritmo vas a cerrar el mes en <b>{money(pace, true)}</b>
           {settings.budget > 0 && (pace > settings.budget
             ? <>, <b>{money(pace - settings.budget, true)}</b> por encima de tu presupuesto.</>
             : <>, <b>{money(settings.budget - pace, true)}</b> por debajo de tu presupuesto.</>)}
@@ -44,11 +44,14 @@ function insights(state: State, money: Money) {
     })
   }
 
-  const [top] = byCategory(txs, from, t)
+  // El reparto se calcula sobre lo gastado en las categorías, no sobre el neto con devoluciones.
+  const cats = byCategory(txs, from, t)
+  const gross = cats.reduce((s, c) => s + c.total, 0)
+  const [top] = cats
   if (top) {
     out.push({
       icon: cat(top.id).icon,
-      text: <>Tu mayor gasto del mes es <b>{cat(top.id).name}</b>: {money(top.total, true)}, el {Math.round((top.total / month) * 100)}% del total.</>,
+      text: <>Tu mayor gasto del mes es <b>{cat(top.id).name}</b>: {money(top.total, true)}, el {Math.round((top.total / gross) * 100)}% del total.</>,
     })
   }
 
@@ -139,8 +142,11 @@ export default function Today({ openPeriod, onEdit }: { openPeriod: (k: PeriodKi
         ) : (
           <>
             <span className="label">Gastado hoy</span>
-            <strong className="big">{money(varToday)}</strong>
-            <span className="muted small">Define un presupuesto en Ajustes para saber cuánto puedes gastar cada día.</span>
+            <strong className="big">{money(Math.max(varToday, 0))}</strong>
+            <span className="muted small">
+              {varToday < 0 && <>Hoy te devolvieron {money(-varToday)}. </>}
+              Definí un presupuesto en Ajustes para saber cuánto podés gastar cada día.
+            </span>
           </>
         )}
       </section>
@@ -148,8 +154,10 @@ export default function Today({ openPeriod, onEdit }: { openPeriod: (k: PeriodKi
       <section className="tiles">
         <button onClick={() => openPeriod('week')}>
           <span className="label">Hoy</span>
-          <strong>{money(varToday, true)}</strong>
-          <small className="muted">{fixedToday > 0 ? `+ ${money(fixedToday, true)} en fijos` : `media ${money(avg30, true)}`}</small>
+          <strong>{money(Math.max(varToday, 0), true)}</strong>
+          <small className="muted">
+            {varToday < 0 ? `+ ${money(-varToday, true)} devueltos` : fixedToday > 0 ? `+ ${money(fixedToday, true)} en fijos` : `media ${money(avg30, true)}`}
+          </small>
         </button>
         <button onClick={() => openPeriod('month')}>
           <span className="label">Mes</span>
@@ -166,8 +174,8 @@ export default function Today({ openPeriod, onEdit }: { openPeriod: (k: PeriodKi
       {backupDue && (
         <section className="card notice">
           <p>
-            <b>Haz una copia de tus datos.</b> Solo existen en este dispositivo
-            {settings.lastBackup ? <>; la última copia es del {dayLabel(settings.lastBackup).toLowerCase()}.</> : ' y todavía no tienes ninguna copia.'}
+            <b>Hacé una copia de tus datos.</b> Solo existen en este dispositivo
+            {settings.lastBackup ? <>; la última copia es del {dayLabel(settings.lastBackup).toLowerCase()}.</> : ' y todavía no tenés ninguna copia.'}
           </p>
           <div className="row">
             <button onClick={() => actions.snoozeBackup()}>Más tarde</button>
@@ -197,13 +205,13 @@ export default function Today({ openPeriod, onEdit }: { openPeriod: (k: PeriodKi
         </section>
       ) : txs.length === 0 ? (
         <section className="card empty">
-          <p>Aún no hay movimientos. Añade el primero arriba.</p>
+          <p>Todavía no hay movimientos. Agregá el primero arriba.</p>
           <button className="link" onClick={() => actions.replace(demoData(getState()))}>
             Ver la app con datos de ejemplo
           </button>
         </section>
       ) : (
-        <p className="muted center">Hoy no has gastado nada todavía.</p>
+        <p className="muted center">Hoy todavía no gastaste nada.</p>
       )}
     </>
   )

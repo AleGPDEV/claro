@@ -78,12 +78,12 @@ export default function SettingsView() {
         <h2>Tus datos</h2>
         <p className="muted small">
           Se guardan solo en este dispositivo.{' '}
-          {settings.lastBackup ? `Última copia: ${dayLabel(settings.lastBackup).toLowerCase()}.` : 'Todavía no has hecho ninguna copia.'}
+          {settings.lastBackup ? `Última copia: ${dayLabel(settings.lastBackup).toLowerCase()}.` : 'Todavía no hiciste ninguna copia.'}
         </p>
         {persisted === false && (
           <p className="warn small">
-            El navegador puede borrar estos datos si pasas un tiempo sin abrir la app (en iPhone, unos 7 días).
-            Para evitarlo, instálala en la pantalla de inicio y descarga una copia de vez en cuando.
+            El navegador puede borrar estos datos si pasás un tiempo sin abrir la app (en iPhone, unos 7 días).
+            Para evitarlo, instalala en la pantalla de inicio y descargá una copia de vez en cuando.
           </p>
         )}
         <div className="row">

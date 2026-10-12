@@ -57,11 +57,11 @@ export default function QuickAdd() {
           value={text}
           onChange={(e) => setText(e.target.value)}
           placeholder="café 3,50"
-          aria-label="Añadir movimiento"
+          aria-label="Agregar movimiento"
           autoComplete="off"
           enterKeyHint="done"
         />
-        <button className="primary" disabled={entry.amount === null} aria-label="Añadir">
+        <button className="primary" disabled={entry.amount === null} aria-label="Agregar">
           +
         </button>
       </div>
@@ -83,6 +83,16 @@ export default function QuickAdd() {
             <input className="chip" type="date" value={entry.date} max={today()} onChange={(e) => setDate(e.target.value || null)} aria-label="Fecha" />
             <strong className="chip-amount">{entry.kind === 'income' || entry.refund ? '+' : ''}{money(entry.amount)}</strong>
           </div>
+          {entry.doubt === 'year' && (
+            <p className="hint doubt" role="status">
+              ¿{parsed.amount} es el monto o un año? Se va a registrar como monto. Si el monto es otro, escribilo al final.
+            </p>
+          )}
+          {entry.doubt === 'several' && (
+            <p className="hint doubt" role="status">
+              Hay varios números: se toma <b>{money(entry.amount)}</b> como monto y el resto queda en la nota.
+            </p>
+          )}
           {entry.refund ? (
             <p className="hint">Devolución: se resta de lo gastado en <b>{cat(entry.category).name}</b>.</p>
           ) : entry.kind === 'expense' ? (
@@ -100,7 +110,7 @@ export default function QuickAdd() {
           </button>
         </p>
       ) : (
-        <p className="hint">Escribe qué y cuánto. También «ayer 20 cena», «+1500 sueldo» o «-30 devolución».</p>
+        <p className="hint">Escribí qué y cuánto. También «ayer 20 cena», «+1500 sueldo» o «-30 devolución».</p>
       )}
     </form>
   )

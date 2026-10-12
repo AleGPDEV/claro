@@ -2,6 +2,9 @@ import { detectCategory, isCategory, normalize, tokenize, wordForms } from './ca
 import { addDays, today } from './dates'
 import type { Kind } from './types'
 
+/** Tope de cualquier monto, tecleado o importado. */
+export const MAX_AMOUNT = 1e10
+
 export interface Parsed {
   /** Siempre positivo; `refund` indica que resta. */
   amount: number | null
@@ -10,6 +13,11 @@ export interface Parsed {
   note: string
   category: string
   date: string
+  /**
+   * Duda que conviene mostrar: el único número parece un año, o había varios
+   * números y se eligió uno por su posición.
+   */
+  doubt: 'year' | 'several' | null
 }
 
 /** Acepta "3,50", "3.50", "1.234,56", "1,234.56" y "1.500" (miles). */
@@ -28,7 +36,7 @@ export function parseAmount(raw: string): number | null {
     s = thousands ? parts.join('') : parts.join('.')
   }
   const n = Number(s)
-  return Number.isFinite(n) && n > 0 && n < 1e12 ? Math.round(n * 100) / 100 : null
+  return Number.isFinite(n) && n > 0 && n < MAX_AMOUNT ? Math.round(n * 100) / 100 : null
 }
 
 // Un número suelto: no pegado a letras ("x2", "covid19") ni a otro número.
@@ -40,9 +48,12 @@ interface Candidate {
   start: number
   end: number
   raw: string
+  value: number | null
   /** Lleva símbolo de moneda. */
   marked: boolean
   negative: boolean
+  /** Tiene dos decimales, como un precio. */
+  cents: boolean
 }
 
 function candidates(text: string): Candidate[] {
@@ -65,34 +76,46 @@ function candidates(text: string): Candidate[] {
       marked = true
       end += after[0].length
     }
-    found.push({ start, end, raw: m[0], marked, negative })
+    found.push({ start, end, raw: m[0], value: parseAmount(m[0]), marked, negative, cents: /[.,]\d{2}$/.test(m[0]) })
   }
+
   // "café 3 50" → 3,50: un entero corto seguido de exactamente dos cifras son los céntimos.
   // Con cuatro cifras o más ("concierto 2026 80") son dos números distintos.
   for (let i = 0; i < found.length - 1; i++) {
     const a = found[i]
     const b = found[i + 1]
     if (text.slice(a.end, b.start) === ' ' && /^\d{1,3}$/.test(a.raw) && /^\d{2}$/.test(b.raw) && !b.negative) {
-      found.splice(i, 2, { ...a, end: b.end, raw: `${a.raw}.${b.raw}`, marked: a.marked || b.marked })
+      const raw = `${a.raw}.${b.raw}`
+      found.splice(i, 2, { ...a, end: b.end, raw, value: parseAmount(raw), marked: a.marked || b.marked, cents: true })
       break
     }
+  }
+
+  // "uber 10 y 5 propina" → 15: dos montos unidos por "y", "+" o "más" se suman.
+  for (let i = 0; i < found.length - 1; ) {
+    const a = found[i]
+    const b = found[i + 1]
+    const joined = /^\s*(?:y|\+|mas|más)\s*$/i.test(text.slice(a.end, b.start))
+    if (joined && a.value !== null && b.value !== null && !b.negative) {
+      const value = Math.round((a.value + b.value) * 100) / 100
+      found.splice(i, 2, { ...a, end: b.end, raw: String(value), value, marked: a.marked || b.marked, cents: a.cents || b.cents })
+    } else i++
   }
   return found
 }
 
 /**
- * Elige cuál de los números es el importe. Por orden: el que lleva símbolo de moneda,
+ * Elige cuál de los números es el monto. Por orden: el que lleva símbolo de moneda,
  * el único con céntimos, el del final, el del principio y, si no, el último.
  */
-function pickAmount(text: string, found: Candidate[]) {
-  const cents = found.filter((c) => /[.,]\d{2}$/.test(c.raw))
-  return (
-    found.find((c) => c.marked) ??
-    (cents.length === 1 ? cents[0] : undefined) ??
-    found.find((c) => c.end === text.length) ??
-    found.find((c) => c.start === 0) ??
-    found[found.length - 1]
-  )
+function pickAmount(text: string, found: Candidate[]): { chosen?: Candidate; doubt: Parsed['doubt'] } {
+  const cents = found.filter((c) => c.cents)
+  const sure = found.find((c) => c.marked) ?? (cents.length === 1 ? cents[0] : undefined)
+  if (sure) return { chosen: sure, doubt: null }
+  const chosen =
+    found.find((c) => c.end === text.length) ?? found.find((c) => c.start === 0) ?? found[found.length - 1]
+  if (found.length > 1) return { chosen, doubt: 'several' }
+  return { chosen, doubt: chosen && /^(19|20)\d{2}$/.test(chosen.raw) ? 'year' : null }
 }
 
 /** Interpreta una entrada libre como "café 3,50", "ayer 20 cena", "+1500 sueldo" o "-20 cine". */
@@ -113,8 +136,8 @@ export function parseEntry(text: string, learned: Record<string, string>): Parse
     .replace(/\s+/g, ' ')
     .trim()
 
-  const chosen = pickAmount(rest, candidates(rest))
-  const amount = chosen ? parseAmount(chosen.raw) : null
+  const { chosen, doubt } = pickAmount(rest, candidates(rest))
+  const amount = chosen?.value ?? null
   if (chosen) rest = `${rest.slice(0, chosen.start)} ${rest.slice(chosen.end)}`
 
   let note = rest.replace(/[€$]/g, '').replace(/\s+/g, ' ').trim()
@@ -129,5 +152,5 @@ export function parseEntry(text: string, learned: Record<string, string>): Parse
   const refundWord = tokenize(note).some((t) => wordForms(t).some((f) => REFUND_WORDS.includes(f)))
   const refund = kind === 'expense' && (refundWord || chosen?.negative === true)
 
-  return { amount, kind, refund, note, category, date }
+  return { amount, kind, refund, note, category, date, doubt: amount === null ? null : doubt }
 }

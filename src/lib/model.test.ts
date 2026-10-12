@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import { toCsv } from './csv'
 import { guessCurrency } from './locale'
-import { dueCount, materialize, sanitize } from './model'
+import { dueCount, MAX_CATCH_UP, materialize, sanitize } from './model'
 import type { Tx } from './types'
 
 const tx = (over: Partial<Tx> = {}) => ({ id: 'a', kind: 'expense', amount: 10, category: 'comida', note: 'Café', date: '2026-10-12', ...over })
@@ -26,6 +26,11 @@ describe('sanitize', () => {
   test('descarta importes inválidos y conserva las devoluciones', () => {
     const s = sanitize({ txs: [tx({ amount: 0 }), tx({ id: 'b', amount: -5 }), tx({ id: 'c', amount: NaN }), tx({ id: 'd', kind: 'income', amount: -5 })] }, 'USD')
     expect(s.txs.map((t) => t.id)).toEqual(['b'])
+  })
+
+  test('descarta montos fuera de rango, también en devoluciones', () => {
+    const s = sanitize({ txs: [tx({ amount: -100_000_000_000 }), tx({ id: 'b', amount: 100_000_000_000 }), tx({ id: 'c', amount: -500 })] }, 'USD')
+    expect(s.txs.map((t) => t.id)).toEqual(['c'])
   })
 
   test('una categoría desconocida pasa a Otros', () => {
@@ -53,6 +58,15 @@ describe('fijos', () => {
     expect(once.txs.map((t) => t.date)).toEqual(['2026-08-31', '2026-09-30'])
     expect(materialize(once, '2026-10-12')).toBe(once)
   })
+
+  test('una fecha muy antigua registra como mucho el tope, también en pasadas siguientes', () => {
+    const old = sanitize({ recurring: [{ id: 'r', kind: 'expense', name: 'Gym', amount: 10, category: 'salud', every: 'week', start: '1990-01-01', done: 0 }] }, 'USD')
+    expect(dueCount('1990-01-01', 'week', '2026-10-12')).toBe(MAX_CATCH_UP)
+    const once = materialize(old, '2026-10-12')
+    expect(once.txs).toHaveLength(MAX_CATCH_UP)
+    expect(materialize(once, '2026-10-12')).toBe(once)
+    expect(materialize(once, '2026-10-19').txs).toHaveLength(MAX_CATCH_UP + 1)
+  })
 })
 
 describe('moneda por defecto', () => {
@@ -69,11 +83,18 @@ describe('CSV', () => {
 
   test('en español: BOM, punto y coma y coma decimal', () => {
     const csv = toCsv(rows, ',')
-    expect(csv.startsWith('﻿fecha;tipo;importe;categoria;nota\r\n')).toBe(true)
+    expect(csv.startsWith('﻿fecha;tipo;monto;categoria;nota\r\n')).toBe(true)
     expect(csv).toContain('2026-10-12;devolución;-3,5;"Comida";"Devolución ""café"""')
   })
 
   test('una nota que parece una fórmula se neutraliza', () => {
     expect(toCsv(rows, '.')).toContain(`2026-10-12,gasto,10,"Comida","'=HYPERLINK(""x"")"`)
+    const risky = ["-2+3+cmd|' /C calc'!A0", '+SUM(A1:A9)', '@SUM(1)', '-A1']
+    for (const note of risky) expect(toCsv([tx({ note }) as Tx], '.')).toContain(`,"'${note.replace(/"/g, '""')}"`)
+  })
+
+  test('un signo seguido de número y texto llano no lleva apóstrofo', () => {
+    for (const note of ['-5 test', '+10 extra', '-3,50 propina'])
+      expect(toCsv([tx({ note }) as Tx], '.')).toContain(`,"${note}"`)
   })
 })

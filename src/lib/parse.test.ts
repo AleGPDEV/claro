@@ -39,6 +39,9 @@ describe('qué número es el importe', () => {
     ['cena 30€', 30, 'Cena'],
     ['alquiler 1.500', 1500, 'Alquiler'],
     ['pilas x2 8', 8, 'Pilas x2'],
+    ['uber 10 y 5 propina', 15, 'Uber propina'],
+    ['super 1.200 + 350', 1550, 'Super'],
+    ['cena 30 más 5', 35, 'Cena'],
   ])('%s → %d', (text, amount, note) => {
     const p = parse(text)
     expect(p.amount).toBe(amount)
@@ -47,8 +50,20 @@ describe('qué número es el importe', () => {
 
   test('sin número no hay importe', () => expect(parse('café').amount).toBeNull())
 
-  // Con un único número no hay forma de saber que es un año: se toma como importe.
-  test('un único número siempre es el importe', () => expect(parse('concierto 2026').amount).toBe(2026))
+  // Con un único número no hay forma de saber que es un año: se toma como monto y se avisa.
+  test('un único número siempre es el monto, con aviso si parece un año', () => {
+    expect(parse('concierto 2026')).toMatchObject({ amount: 2026, doubt: 'year' })
+    expect(parse('concierto $2026').doubt).toBeNull()
+    expect(parse('concierto 2026 80').doubt).toBe('several')
+    expect(parse('alquiler 2500').doubt).toBeNull()
+  })
+
+  test('avisa cuando elige entre varios números por su posición', () => {
+    expect(parse('20 cena con 4 amigos').doubt).toBe('several')
+    expect(parse('2 cafés 3,50').doubt).toBeNull()
+    expect(parse('café 3,50').doubt).toBeNull()
+    expect(parse('café').doubt).toBeNull()
+  })
 })
 
 describe('fecha', () => {
@@ -89,9 +104,15 @@ describe('categorías', () => {
     ['compra', 'super'],
     ['caña', 'comida'],
     ['netflix', 'suscripciones'],
+    ['pago resto alquiler', 'hogar'],
+    ['matrícula del auto', 'transporte'],
+    ['matrícula facultad', 'educacion'],
+    ['luces', 'hogar'],
+    ['copa de vino', 'comida'],
+    ['copas', 'ocio'],
   ])('%s → %s', (text, id) => expect(detectCategory(text)).toBe(id))
 
-  test.each(['constructor', 'toString', '__proto__', 'xyz'])('"%s" no tiene categoría', (text) => {
+  test.each(['constructor', 'toString', '__proto__', 'xyz', 'cursor', 'restaurar'])('"%s" no tiene categoría', (text) => {
     expect(detectCategory(text)).toBeNull()
     expect(parse(`${text} 5000`).category).toBe('otros')
   })
