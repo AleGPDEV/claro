@@ -1,0 +1,13 @@
+{
+  "name": "Claro",
+  "short_name": "Claro",
+  "description": "Ten claro en qué se va tu dinero.",
+  "lang": "es",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#0e0f11",
+  "theme_color": "#0e0f11",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
