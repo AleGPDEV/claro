@@ -39,16 +39,21 @@ describe('qué número es el importe', () => {
     ['cena 30€', 30, 'Cena'],
     ['alquiler 1.500', 1500, 'Alquiler'],
     ['pilas x2 8', 8, 'Pilas x2'],
-    ['uber 10 y 5 propina', 15, 'Uber propina'],
+    ['uber 10 y 5 propina', 15, 'Uber y propina'],
     ['super 1.200 + 350', 1550, 'Super'],
     ['cena 30 más 5', 35, 'Cena'],
-    ['almuerzo 450 y propina 50', 500, 'Almuerzo'],
+    ['almuerzo 450 y propina 50', 500, 'Almuerzo y propina'],
     ['café 3,50 y 2 medialunas', 3.5, 'Café y 2 medialunas'],
     ['café 3 y 2 medialunas', 3, 'Café y 2 medialunas'],
     ['pago 3 cuotas 1200', 1200, 'Pago 3 cuotas'],
     ['12 uber 2 personas', 12, 'Uber 2 personas'],
     ['café 150 y medialunas 2', 150, 'Café y medialunas 2'],
-    ['uber 10 y taxi 5', 15, 'Uber'],
+    ['uber 10 y taxi 5', 15, 'Uber y taxi'],
+    ['alquiler 25000 y luz 3000', 28000, 'Alquiler y luz'],
+    ['10 uber y 5 taxi', 15, 'Uber y taxi'],
+    ['cena 30+5', 35, 'Cena'],
+    ['pan y queso 200', 200, 'Pan y queso'],
+    ['uber 10 y 5 propina y 2 peaje', 17, 'Uber y propina y peaje'],
   ])('%s → %d', (text, amount, note) => {
     const p = parse(text)
     expect(p.amount).toBe(amount)
@@ -64,6 +69,25 @@ describe('qué número es el importe', () => {
     expect(parse('cosas 100 y farmacia 40')).toMatchObject({ amount: 100, next: 'farmacia 40' })
     expect(parse('farmacia 400')).toMatchObject({ amount: 400, category: 'salud', doubt: null, next: null })
     expect(parse('almuerzo 450 y propina 50').next).toBeNull()
+    expect(parse('super 1200 y la farmacia 400')).toMatchObject({ amount: 1200, note: 'Super', next: 'la farmacia 400' })
+    expect(parse('cine 20 y 2 cervezas')).toMatchObject({ amount: 20, note: 'Cine y 2 cervezas', next: null })
+  })
+
+  test('el monto puede ir antes del concepto, y el signo se queda en su tramo', () => {
+    expect(parse('1200 super y 400 farmacia')).toMatchObject({ amount: 1200, note: 'Super', category: 'super', next: '400 farmacia' })
+    expect(parse('400 farmacia')).toMatchObject({ amount: 400, category: 'salud' })
+    expect(parse('+1500 sueldo y super 500')).toMatchObject({ kind: 'income', amount: 1500, note: 'Sueldo', next: 'super 500' })
+    expect(parse('super 500')).toMatchObject({ kind: 'expense', amount: 500 })
+    expect(parse('-200 devolución amazon y super 300')).toMatchObject({ refund: true, amount: 200, category: 'compras', next: 'super 300' })
+    expect(parse('super 300').refund).toBe(false)
+  })
+
+  test('tres gastos se anotan de a uno', () => {
+    const first = parse('ayer super 1200 y farmacia 400 y cine 600')
+    expect(first).toMatchObject({ amount: 1200, date: '2026-10-11', next: 'ayer farmacia 400 y cine 600' })
+    const second = parse(first.next!)
+    expect(second).toMatchObject({ amount: 400, category: 'salud', date: '2026-10-11', next: 'ayer cine 600' })
+    expect(parse(second.next!)).toMatchObject({ amount: 600, category: 'ocio', date: '2026-10-11', next: null })
   })
 
   test('un único número siempre es el monto, con aviso si coincide con este año o el siguiente', () => {
@@ -106,6 +130,27 @@ describe('moneda', () => {
     expect(parseEntry('entradas u$s 45 para 2', {}, both)).toMatchObject({ amount: 45, currency: 'USD', note: 'Entradas para 2', doubt: null })
     expect(parseEntry('-500 pesos devolución', {}, both)).toMatchObject({ amount: 500, currency: 'UYU', refund: true })
   })
+  test('al partir la línea, cada tramo conserva su moneda', () => {
+    const first = parseEntry('super 30 y farmacia 10 usd', {}, both)
+    expect(first).toMatchObject({ amount: 30, currency: null, note: 'Super', next: 'farmacia 10 usd' })
+    expect(parseEntry(first.next!, {}, both)).toMatchObject({ amount: 10, currency: 'USD', note: 'Farmacia', category: 'salud' })
+
+    const reversed = parseEntry('farmacia 10 usd y super 900', {}, both)
+    expect(reversed).toMatchObject({ amount: 10, currency: 'USD', next: 'super 900' })
+    expect(parseEntry(reversed.next!, {}, both)).toMatchObject({ amount: 900, currency: null })
+
+    const pesos = parseEntry('super 1200 pesos y farmacia u$s 10', {}, both)
+    expect(pesos).toMatchObject({ amount: 1200, currency: 'UYU', note: 'Super', next: 'farmacia u$s 10' })
+  })
+
+  test('misma categoría en monedas distintas: no se suman', () => {
+    expect(parseEntry('alquiler 500 usd y luz 3000 pesos', {}, both)).toMatchObject({ amount: 500, currency: 'USD', note: 'Alquiler', next: 'luz 3000 pesos' })
+    expect(parseEntry('uber 10 usd y 5 usd propina', {}, both)).toMatchObject({ amount: 15, currency: 'USD', note: 'Uber y propina', next: null })
+    // Si solo un tramo dice la moneda no se sabe en cuál está el otro: tampoco se suman.
+    expect(parseEntry('alquiler 20000 y luz 50 usd', {}, both)).toMatchObject({ amount: 20000, currency: null, next: 'luz 50 usd' })
+    expect(parseEntry('alquiler 500 usd y luz 3000', {}, both)).toMatchObject({ amount: 500, currency: 'USD', next: 'luz 3000' })
+  })
+
   test('con una sola moneda, "pesos" es parte de la nota', () =>
     expect(parseEntry('café 150 pesos', {}, ['USD'])).toMatchObject({ amount: 150, currency: null, note: 'Café pesos' }))
 })

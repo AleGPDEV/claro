@@ -73,6 +73,14 @@ export default function QuickAdd() {
         </button>
       </div>
 
+      {added && (
+        <p className="hint" role="status">
+          ✓ Anotado: {added.label}{' '}
+          <button type="button" className="link" onClick={() => { actions.removeTx(added.id); setAdded(null) }}>
+            Deshacer
+          </button>
+        </p>
+      )}
       {entry.amount !== null ? (
         <>
           <div className="chips">
@@ -106,7 +114,7 @@ export default function QuickAdd() {
           )}
           {entry.doubt === 'two' && (
             <p className="hint doubt" role="status">
-              Parecen dos gastos distintos. Se anota primero este; «{entry.next}» queda escrito para que lo agregues después.
+              Son dos movimientos distintos. Se anota primero este; «{entry.next}» queda escrito para que lo agregues después.
             </p>
           )}
           {entry.doubt === 'several' && (
@@ -126,14 +134,7 @@ export default function QuickAdd() {
             <p className="hint">Son <b>{money(value)}</b>.</p>
           ) : null}
         </>
-      ) : added ? (
-        <p className="hint" role="status">
-          ✓ {added.label}{' '}
-          <button type="button" className="link" onClick={() => { actions.removeTx(added.id); setAdded(null) }}>
-            Deshacer
-          </button>
-        </p>
-      ) : (
+      ) : added ? null : (
         <p className="hint">
           Escribí qué y cuánto. También «ayer 20 cena», «+1500 sueldo» o «-30 devolución»
           {two && <>. Sin indicar moneda se anota en {currency}</>}.

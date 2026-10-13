@@ -31,5 +31,6 @@ export default defineConfig({
   // Rutas relativas: la app funciona igual en la raíz que en un subdirectorio (GitHub Pages).
   base: './',
   plugins: [react(), serviceWorker()],
-  server: { port: 5180, strictPort: true },
+  // Con sondeo: en Windows el vigilante de archivos a veces no ve los cambios y sirve módulos viejos.
+  server: { port: 5180, strictPort: true, watch: { usePolling: true, interval: 300 } },
 })

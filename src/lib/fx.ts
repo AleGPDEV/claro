@@ -87,13 +87,23 @@ const currencyWords = (code: string) =>
  * (en el Río de la Plata los dólares se escriben "U$S"); si no, no dice nada.
  */
 export function findCurrency(text: string, codes: string[]): { code: string; text: string } | null {
-  const owner = new Map<string, string>()
-  for (const code of codes) for (const w of currencyWords(code)) if (!owner.has(w)) owner.set(w, code)
-  if (owner.size === 0) return null
-  const words = [...owner.keys()].sort((a, b) => b.length - a.length).map((w) => w.replace(/[$.*+?^{}()|[\]\\]/g, '\\$&'))
-  const m = new RegExp(`(?<!\\p{L})(${words.join('|')})(?!\\p{L})`, 'iu').exec(text)
+  const { owner, pattern } = mentions(codes)
+  const m = pattern && new RegExp(pattern, 'iu').exec(text)
   if (m) return { code: owner.get(m[1].toLowerCase())!, text: `${text.slice(0, m.index)}$${text.slice(m.index + m[1].length)}` }
   const pesos = codes.filter((c) => PESOS.includes(c))
   if (codes.length > 1 && pesos.length === 1 && /\$\s?\d|\d\s?\$/.test(text)) return { code: pesos[0], text }
   return null
+}
+
+/** Cambia por "$" todas las menciones a una moneda, sin alterar el número de palabras del texto. */
+export function maskCurrencies(text: string, codes: string[]) {
+  const { pattern } = mentions(codes)
+  return pattern ? text.replace(new RegExp(pattern, 'giu'), '$$') : text
+}
+
+function mentions(codes: string[]) {
+  const owner = new Map<string, string>()
+  for (const code of codes) for (const w of currencyWords(code)) if (!owner.has(w)) owner.set(w, code)
+  const words = [...owner.keys()].sort((a, b) => b.length - a.length).map((w) => w.replace(/[$.*+?^{}()|[\]\\]/g, '\\$&'))
+  return { owner, pattern: words.length ? `(?<!\\p{L})(${words.join('|')})(?!\\p{L})` : null }
 }

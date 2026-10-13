@@ -1,6 +1,6 @@
 import { detectCategory, isCategory, normalize, tokenize, wordForms } from './categories'
 import { addDays, today } from './dates'
-import { findCurrency } from './fx'
+import { findCurrency, maskCurrencies } from './fx'
 import type { Kind } from './types'
 
 /** Tope de cualquier monto, tecleado o importado. */
@@ -21,7 +21,7 @@ export interface Parsed {
    * había varios números y se eligió uno por su posición, o la línea trae dos gastos.
    */
   doubt: 'year' | 'several' | 'two' | null
-  /** Con dos gastos en una línea ("super 1200 y farmacia 400"), el texto del segundo. */
+  /** Con dos gastos en una línea ("super 1200 y farmacia 400"), el texto del segundo tal como se escribió. */
   next: string | null
 }
 
@@ -48,7 +48,8 @@ export function parseAmount(raw: string): number | null {
 const NUMBER = /(?<![\p{L}\p{N}.,])\d+(?:[.,]\d+)*(?![\p{L}\p{N}])/gu
 const DAYS: Record<string, number> = { hoy: 0, ayer: -1, anteayer: -2, antier: -2 }
 const REFUND_WORDS = ['devolucion', 'reembolso', 'reintegro']
-const JOINER = /^\s*(?:y|\+|mas|más)(?:\s+(\p{L}+))?\s*$/iu
+/** Palabra que une dos tramos: "super 1200 y farmacia 400", "cena 30 + 5", "20 más 5". */
+const JOINER = /^(?:y|\+|mas|más)$/i
 
 interface Candidate {
   start: number
@@ -66,22 +67,21 @@ interface Candidate {
 
 // Palabras terminadas en "s" que no son un plural contable.
 const NOT_PLURAL = ['mas', 'más', 'menos', 'lunes', 'martes', 'miercoles', 'miércoles', 'jueves', 'viernes', 'gratis', 'antes', 'despues', 'después']
-const isPlural = (word: string) => /^\p{L}{3,}s$/iu.test(word) && !NOT_PLURAL.includes(word.toLowerCase())
-/** Un entero de los que cuentan cosas: una o dos cifras, hasta 31, sin símbolo ni signo. */
-const countsThings = (c: Pick<Candidate, 'raw' | 'marked' | 'negative'>) =>
-  !c.marked && !c.negative && /^\d{1,2}$/.test(c.raw) && Number(c.raw) <= 31
-
-/** Un entero pequeño seguido de un plural: "2 medialunas", "3 cuotas", "4 amigos". */
-function isQuantity(text: string, c: Pick<Candidate, 'end' | 'raw' | 'marked' | 'negative'>) {
-  const word = text.slice(c.end).match(/^\s+(\p{L}+)(?!\p{L})/u)?.[1]
-  return countsThings(c) && word !== undefined && isPlural(word)
-}
+const isPlural = (word: string | undefined) => word !== undefined && /^\p{L}{3,}s$/iu.test(word) && !NOT_PLURAL.includes(word.toLowerCase())
 
 /**
- * Los números del texto que pueden ser el monto. Si la línea trae dos gastos distintos,
- * `cut` es donde termina el primero y solo se devuelven sus números.
+ * Un entero pequeño (hasta 31, sin símbolo ni signo) que cuenta cosas: va seguido de un plural
+ * ("2 medialunas", "4 amigos") o sigue a un plural que abre el tramo ("y medialunas 2").
  */
-function candidates(text: string): { found: Candidate[]; cut: number | null } {
+function isQuantity(text: string, c: Pick<Candidate, 'start' | 'end' | 'raw' | 'marked' | 'negative'>) {
+  if (c.marked || c.negative || !/^\d{1,2}$/.test(c.raw) || Number(c.raw) > 31) return false
+  const after = text.slice(c.end).match(/^\s+(\p{L}+)(?!\p{L})/u)?.[1]
+  const before = text.slice(0, c.start).match(/(?:^|(?:^|\s)(?:y|\+|mas|más)\s+)(\p{L}+)\s+$/iu)?.[1]
+  return isPlural(after) || isPlural(before)
+}
+
+/** Los números del texto que pueden ser el monto. */
+function candidates(text: string): Candidate[] {
   const found: Candidate[] = []
   for (const m of text.matchAll(NUMBER)) {
     let start = m.index
@@ -117,31 +117,7 @@ function candidates(text: string): { found: Candidate[]; cut: number | null } {
       break
     }
   }
-
-  // Dos montos unidos por "y", "+" o "más", con o sin una palabra en medio:
-  // "uber 10 y 5 propina" → 15, "almuerzo 450 y propina 50" → 500.
-  for (let i = 0; i < found.length - 1; ) {
-    const a = found[i]
-    const b = found[i + 1]
-    const join = text.slice(a.end, b.start).match(JOINER)
-    if (!join || a.value === null || b.value === null || b.negative || a.quantity || b.quantity) {
-      i++
-      continue
-    }
-    const word = join[1]
-    // "café 150 y medialunas 2": lo que sigue a un plural es cuántas, no cuánto.
-    if (word && isPlural(word) && countsThings(b)) {
-      b.quantity = true
-      i++
-      continue
-    }
-    // "super 1200 y farmacia 400": la palabra del medio es de otra categoría, son dos gastos.
-    const other = word ? detectCategory(word) : null
-    if (other && other !== detectCategory(text.slice(0, a.start))) return { found: found.slice(0, i + 1), cut: a.end }
-    const value = Math.round((a.value + b.value) * 100) / 100
-    found.splice(i, 2, { ...a, end: b.end, raw: String(value), value, marked: a.marked || b.marked, cents: a.cents || b.cents })
-  }
-  return { found, cut: null }
+  return found
 }
 
 /**
@@ -163,9 +139,41 @@ function pickAmount(text: string, all: Candidate[]): { chosen?: Candidate; doubt
   return { chosen, doubt: chosen && [year, year + 1].includes(Number(chosen.raw)) ? 'year' : null }
 }
 
+interface Group {
+  from: number
+  to: number
+}
+
+/**
+ * Parte las palabras en tramos con monto propio. Un "y", "+" o "más" separa solo si hay un
+ * monto a cada lado: en "pan y queso 200" o "café 3,50 y 2 medialunas" forma parte de la nota.
+ */
+function splitGroups(tokens: string[], currencies: string[]): Group[] {
+  const hasAmount = (from: number, to: number) =>
+    candidates(maskCurrencies(tokens.slice(from, to).join(' '), currencies)).some((c) => c.value !== null && !c.quantity)
+  const groups: Group[] = []
+  let from = 0
+  for (let i = 1; i < tokens.length - 1; i++) {
+    if (!JOINER.test(tokens[i])) continue
+    let end = tokens.findIndex((t, j) => j > i && JOINER.test(t))
+    if (end < 0) end = tokens.length
+    if (i > from && hasAmount(from, i) && hasAmount(i + 1, end)) {
+      groups.push({ from, to: i })
+      from = i + 1
+    }
+  }
+  groups.push({ from, to: tokens.length })
+  return groups
+}
+
 /**
  * Interpreta una entrada libre como "café 3,50", "ayer 20 cena", "+1500 sueldo" o "-20 cine".
  * `currencies` son las monedas que el usuario maneja; si menciona una ("café 150 pesos") se devuelve.
+ *
+ * Una línea con varios tramos ("alquiler 25000 y luz 3000") se suma en un solo movimiento
+ * mientras sean de la misma categoría y digan la misma moneda (o ninguna). Donde cambian
+ * ("super 1200 y farmacia 400", "super 30 y farmacia 10 usd") la línea se corta: se interpreta lo anterior y el resto
+ * se devuelve en `next`, sin tocar, para anotarlo aparte.
  */
 export function parseEntry(text: string, learned: Record<string, string>, currencies: string[] = []): Parsed {
   let rest = text.trim()
@@ -175,33 +183,51 @@ export function parseEntry(text: string, learned: Record<string, string>, curren
     rest = rest.slice(1)
   }
 
-  const mention = findCurrency(rest, currencies)
-  if (mention) rest = mention.text
-
   let date = today()
   let dayWord = ''
-  rest = rest
+  const tokens = rest
     .replace(/(^|\s)(hoy|ayer|anteayer|antier)(?=\s|$)/i, (_, pre: string, word: string) => {
       date = addDays(today(), DAYS[word.toLowerCase()])
       dayWord = word
       return pre
     })
-    .replace(/\s+/g, ' ')
-    .trim()
+    .replace(/(\d)\+(\d)/g, '$1 + $2')
+    .split(/\s+/)
+    .filter(Boolean)
 
-  const { found, cut } = candidates(rest)
+  const groups = splitGroups(tokens, currencies)
+  const textOf = (g: Group) => tokens.slice(g.from, g.to).join(' ')
+  const traits = (g: Group) => ({ category: detectCategory(textOf(g)), currency: findCurrency(textOf(g), currencies)?.code ?? null })
+  const head = traits(groups[0])
+  let taken = 1
+  for (; taken < groups.length; taken++) {
+    const t = traits(groups[taken])
+    const otherCategory = t.category !== null && t.category !== head.category
+    // También si solo uno de los dos dice la moneda: sumar "alquiler 20000 y luz 50 usd" sería un error grande y silencioso.
+    if (otherCategory || t.currency !== head.currency) break
+  }
   // El segundo gasto conserva la fecha escrita ("ayer super 1200 y farmacia 400").
-  let next: string | null = null
-  if (cut !== null) {
-    next = `${dayWord} ${rest.slice(cut).replace(/^\s*(?:y|\+|mas|más)\s+/iu, '')}`.trim()
-    rest = rest.slice(0, cut)
+  const next = taken < groups.length ? `${dayWord} ${tokens.slice(groups[taken].from).join(' ')}`.trim() : null
+
+  let amount: number | null = null
+  let currency: string | null = null
+  let doubt: Parsed['doubt'] = null
+  let negative = false
+  const notes: string[] = []
+  for (const g of groups.slice(0, taken)) {
+    currency ??= findCurrency(textOf(g), currencies)?.code ?? null
+    // Cada mención a una moneda pasa a "$", que marca como monto el número de al lado.
+    const masked = maskCurrencies(textOf(g), currencies)
+    const picked = pickAmount(masked, candidates(masked))
+    const { chosen } = picked
+    if (chosen && chosen.value !== null) amount = Math.round(((amount ?? 0) + chosen.value) * 100) / 100
+    negative ||= chosen?.negative === true
+    doubt ??= picked.doubt
+    const piece = (chosen ? `${masked.slice(0, chosen.start)} ${masked.slice(chosen.end)}` : masked).replace(/[€$]/g, '').replace(/\s+/g, ' ').trim()
+    if (piece) notes.push(piece)
   }
 
-  const { chosen, doubt } = pickAmount(rest, found)
-  const amount = chosen?.value ?? null
-  if (chosen) rest = `${rest.slice(0, chosen.start)} ${rest.slice(chosen.end)}`
-
-  let note = rest.replace(/[€$]/g, '').replace(/\s+/g, ' ').trim()
+  let note = notes.join(' y ')
   note = note.charAt(0).toUpperCase() + note.slice(1)
 
   const key = normalize(note)
@@ -211,11 +237,10 @@ export function parseEntry(text: string, learned: Record<string, string>, curren
   const category = kind === 'income' ? 'ingreso' : (detected ?? 'otros')
 
   const refundWord = tokenize(note).some((t) => wordForms(t).some((f) => REFUND_WORDS.includes(f)))
-  const refund = kind === 'expense' && (refundWord || chosen?.negative === true)
+  const refund = kind === 'expense' && (refundWord || negative)
 
   return {
-    amount, kind, refund, note, category, date,
-    currency: mention?.code ?? null,
+    amount, kind, refund, note, category, date, currency,
     doubt: amount === null ? null : next !== null ? 'two' : doubt,
     next: amount === null ? null : next,
   }
