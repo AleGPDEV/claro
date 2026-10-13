@@ -1,6 +1,6 @@
 // Plantilla: vite.config.ts sustituye la versión y la lista de archivos en cada build.
-const CACHE = 'claro-de6f918a4b'
-const ASSETS = ["./","apple-touch-icon.png","assets/index-3oGBSgkv.js","assets/index-CcGZYDDh.css","icon-192.png","icon-512.png","icon.svg","manifest.webmanifest"]
+const CACHE = 'claro-f700da6fe2'
+const ASSETS = ["./","apple-touch-icon.png","assets/index-B0KFh0Co.js","assets/index-CcGZYDDh.css","icon-192.png","icon-512.png","icon.svg","manifest.webmanifest"]
 
 self.addEventListener('install', (e) => {
   e.waitUntil(
